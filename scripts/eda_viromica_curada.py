@@ -1,11 +1,37 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""Análisis Exploratorio de Datos (EDA) sobre el conjunto de datos curado.
+
+Este script representa el paso 5 (Análisis Exploratorio Post-Curación) de la 
+tubería del TFI. Realiza un diagnóstico descriptivo y visual idéntico al del paso 3, 
+pero enfocado exclusivamente en la colección 'genes_curados'[cite: 5]. Esto permite 
+evaluar el impacto del filtrado de longitudes (rango [30, 1022] aa) sobre la 
+composición taxonómica, la distribución de hospedadores y la estructura general 
+de los datos biológicos que ingresarán a los modelos de representación (embeddings)[cite: 5].
+"""
 
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pymongo import MongoClient
 
-def run_eda():
+
+def run_eda() -> None:
+    """Ejecuta el análisis exploratorio sobre los datos curados y genera gráficos de diagnóstico.
+
+    Se conecta a la colección 'genes_curados' en MongoDB y procesa la distribución de 
+    longitudes de secuencia, así como el conteo de organismos y hospedadores[cite: 5]. 
+    Genera un lienzo con cuatro visualizaciones clave (histograma, boxplot, gráfico de 
+    barras y gráfico de torta) para el informe de avance.
+
+    Files generated:
+        eda_viromica_curados_results.png (matplotlib figure): Gráfico consolidado de 4 paneles 
+            que refleja el estado del dataset limpio.
+
+    Raises:
+        pymongo.errors.ConnectionFailure: Si no logra establecer la conexión con MongoDB.
+    """
     # 1. Conexión
     client = MongoClient("mongodb://localhost:27017/")
     db = client["viromica_db"]
@@ -75,9 +101,21 @@ def run_eda():
     print(f"\nEstadísticas de Longitud:")
     print(df_len.describe())
 
-print("")
 
-def generar_reporte_texto():
+def generar_reporte_texto() -> None:
+    """Genera un informe detallado de estadísticas descriptivas en formato de texto plano.
+
+    Extrae las métricas globales de longitud, listado de organismos representados 
+    y hospedadores sobre los datos filtrados en la colección 'genes_curados'[cite: 5]. 
+    Facilita el contraste empírico de volumen de pérdida frente al reporte crudo.
+
+    Files generated:
+        reporte_eda_viromica_curados.txt (utf-8 text file): Reporte estructurado con 
+            las métricas post-curación.
+
+    Raises:
+        pymongo.errors.ConnectionFailure: Si se interrumpe el acceso al motor de bases de datos.
+    """
     client = MongoClient("mongodb://localhost:27017/")
     db = client["viromica_db"]
     col = db["genes_curados"]
@@ -109,7 +147,7 @@ def generar_reporte_texto():
     # --- Escritura del Archivo ---
     with open("reporte_eda_viromica_curados.txt", "w", encoding="utf-8") as f:
         f.write("==========================================\n")
-        f.write("   REPORTE EXPLORATORIO: VIROMICA_DB\n")
+        f.write("   REPORTE EXPLORATORIO: VIROMICA_DB (CURADOS)\n")
         f.write(f"   Total de registros: {len(df_len)}\n")
         f.write("==========================================\n\n")
 
@@ -130,6 +168,7 @@ def generar_reporte_texto():
             f.write(f"{str(row['_id']):<50} | {row['count']}\n")
 
     print("Reporte guardado exitosamente en 'reporte_eda_viromica_curados.txt'")
+
 
 if __name__ == "__main__":
     run_eda()

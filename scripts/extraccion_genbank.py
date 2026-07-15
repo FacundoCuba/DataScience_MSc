@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+"""Procesamiento paralelo e ingesta a MongoDB de secuencias codificantes (CDS).
+
+Este script representa el paso 2 (ETL y Normalización) de la tubería del TFI. 
+Recorre de manera recursiva el árbol de directorios jerárquico generado en el paso 1, 
+extrae las regiones codificantes (CDS) de los archivos GenBank de forma paralela 
+(utilizando multiprocessing) y realiza una ingesta masiva (bulk upsert) en MongoDB 
+asegurando la integridad de los datos taxonómicos, genómicos y de traducción[cite: 2, 8].
+"""
+
 import os
 import io
 import time
@@ -23,8 +32,22 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-def procesar_archivo_gb(file_path):
-    """Extrae CDS de un archivo GenBank de forma resiliente."""
+
+def procesar_archivo_gb(file_path: str) -> list:
+    """Extrae CDS de un archivo GenBank de forma resiliente.
+
+    Lee el archivo en modo binario para prevenir fallos por códecs corruptos,
+    parsea las anotaciones taxonómicas, el hospedador, y extrae los fragmentos
+    CDS con sus secuencias nucleotídicas, traducciones proteicas y coordenadas de posición.
+
+    Args:
+        file_path (str): Ruta completa al archivo GenBank (.gb) a procesar.
+
+    Returns:
+        list of dict: Una lista de diccionarios, donde cada elemento representa
+            un gen/proteína (CDS) listo para ser indexado en MongoDB. Devuelve
+            una lista vacía si ocurre un error irrecuperable de lectura.
+    """
     genes_del_archivo = []
     try:
         # Lectura binaria para evitar errores de codec
@@ -82,12 +105,20 @@ def procesar_archivo_gb(file_path):
     
     return genes_del_archivo
 
-def main():
+
+def main() -> None:
+    """Orquesta la lectura paralela de los archivos y realiza la ingesta masiva en base de datos.
+
+    Escanea de forma recursiva el directorio raíz `GB_DIR` para identificar los archivos GenBank.
+    Inicializa un `ProcessPoolExecutor` para procesar múltiples archivos simultáneamente.
+    Finalmente, gestiona un búfer de escritura que ejecuta operaciones de tipo Upsert masivas
+    (Bulk Operations) contra MongoDB, manteniendo índices optimizados[cite: 2, 8].
+    """
     print(f"[{time.strftime('%H:%M:%S')}] Iniciando extraccion paralela...")
     client = MongoClient(MONGO_URI)
     col = client[DB_NAME][COLLECTION_NAME]
     
-    # Asegurar �ndice para que el UPSERT no sea lento
+    # Asegurar índice para que el UPSERT no sea lento
     col.create_index([("protein_id", 1), ("metadata_virus.accession", 1)])
     
     all_files = []
@@ -99,7 +130,7 @@ def main():
     print(f"Archivos a procesar: {len(all_files)}")
 
     # Paralelizamos el parsing de archivos
-    # Usamos la mitad de tus n�cleos para no saturar el bus de datos
+    # Usamos la mitad de tus núcleos para no saturar el bus de datos
     with ProcessPoolExecutor(max_workers=12) as executor:
         bulk_ops = []
         contador_total = 0
@@ -130,5 +161,7 @@ def main():
 
     client.close()
     print(f"[{time.strftime('%H:%M:%S')}] Finalizado. Total: {contador_total}")
+
+
 if __name__ == "__main__":
     main()

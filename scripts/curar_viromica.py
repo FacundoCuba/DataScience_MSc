@@ -1,9 +1,34 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""Filtrado de calidad, curación y persistencia de secuencias de aminoácidos.
+
+Este script representa el paso 4 (Curación de Datos y Control de Calidad) de la 
+tubería del TFI. Aplica criterios de filtrado biológico y computacional sobre 
+la base de datos cruda 'genes_virales' en MongoDB[cite: 2, 8]. Remueve fragmentos proteicos 
+excesivamente cortos y secuencias excesivamente largas para asegurar la compatibilidad 
+con el límite de tokens de entrada de ESM-2[cite: 6]. Finalmente, consolida los registros 
+válidos en una nueva colección indexada[cite: 5].
+"""
 
 from pymongo import MongoClient
 import time
 
-def curar_datos():
+
+def curar_datos() -> None:
+    """Ejecuta el pipeline de curación de datos utilizando agregaciones nativas en MongoDB.
+
+    Calcula la longitud de cada secuencia de aminoácidos del lado de la base de datos, 
+    descarta los registros que se encuentren fuera del rango definido por `MIN_LEN` (30) 
+    y `MAX_LEN` (1022)[cite: 5], y escribe los documentos resultantes de manera atómica 
+    en una nueva colección denominada 'genes_curados'[cite: 5]. Al finalizar, calcula métricas 
+    del descarte e inicializa un índice para acelerar las búsquedas posteriores[cite: 5].
+
+    Raises:
+        pymongo.errors.ConnectionFailure: Si no es posible conectarse al servidor de MongoDB[cite: 2, 8].
+        ZeroDivisionError: Si la colección original está vacía y se intenta calcular 
+            el porcentaje de descarte.
+    """
     client = MongoClient("mongodb://localhost:27017/")
     db = client["viromica_db"]
     raw_col = db["genes_virales"]
@@ -46,11 +71,17 @@ def curar_datos():
     print(f"--- Resumen ---")
     print(f"Registros originales: {total_original}")
     print(f"Registros curados:    {total_curado}")
-    print(f"Registros eliminados: {descartados} ({(descartados/total_original)*100:.2f}%)")
+    
+    if total_original > 0:
+        porcentaje_descarte = (descartados / total_original) * 100
+        print(f"Registros eliminados: {descartados} ({porcentaje_descarte:.2f}%)")
+    else:
+        print(f"Registros eliminados: {descartados} (0.00%)")
 
     # Creamos índices en la nueva colección para la fase de clustering
     print("Creando índices en 'genes_curados'...")
     clean_col.create_index("protein_id")
+
 
 if __name__ == "__main__":
     curar_datos()
