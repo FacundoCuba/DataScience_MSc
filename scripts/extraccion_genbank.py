@@ -86,6 +86,7 @@ def procesar_archivo_gb(file_path: str) -> list:
                             "nt_sequence": nt_seq,
                             "aa_sequence": aa_seq,
                             "nt_length": len(nt_seq),
+                            "aa_length": len(aa_seq),
                             "metadata_virus": {
                                 "accession": record.id,
                                 "taxon_id": taxon_id,

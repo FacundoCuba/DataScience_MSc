@@ -20,7 +20,7 @@ def curar_datos() -> None:
 
     Calcula la longitud de cada secuencia de aminoácidos del lado de la base de datos, 
     descarta los registros que se encuentren fuera del rango definido por `MIN_LEN` (30) 
-    y `MAX_LEN` (1022)[cite: 5], y escribe los documentos resultantes de manera atómica 
+    y `MAX_LEN` (1175)[cite: 5], y escribe los documentos resultantes de manera atómica 
     en una nueva colección denominada 'genes_curados'[cite: 5]. Al finalizar, calcula métricas 
     del descarte e inicializa un índice para acelerar las búsquedas posteriores[cite: 5].
 
@@ -35,8 +35,8 @@ def curar_datos() -> None:
     clean_col = db["genes_curados"]
     
     # Definimos umbrales
-    MIN_LEN = 30
-    MAX_LEN = 1022
+    MIN_LEN = 30 # Longitud mínima de aminoácidos para considerar una secuencia como válida desde el punto de vista biológico.
+    MAX_LEN = 1175 # Longitud máxima de aminoácidos para considerar una secuencia como válida (3 desvios estándar por encima de la media de ESM-2, que es 1022)[cite: 6].
 
     print(f"[{time.strftime('%H:%M:%S')}] Iniciando curación de datos...")
     
@@ -46,13 +46,8 @@ def curar_datos() -> None:
     # 2. Pipeline de filtrado y transferencia
     pipeline = [
         {
-            "$addFields": {
-                "largo": {"$strLenCP": "$aa_sequence"}
-            }
-        },
-        {
             "$match": {
-                "largo": {"$gte": MIN_LEN, "$lte": MAX_LEN}
+                "aa_length": {"$gte": MIN_LEN, "$lte": MAX_LEN}
             }
         },
         {
