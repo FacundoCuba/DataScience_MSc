@@ -14,7 +14,6 @@ válidos en una nueva colección indexada[cite: 5].
 from pymongo import MongoClient
 import time
 
-
 def curar_datos() -> None:
     """Ejecuta el pipeline de curación de datos utilizando agregaciones nativas en MongoDB.
 
@@ -23,11 +22,6 @@ def curar_datos() -> None:
     y `MAX_LEN` (1175)[cite: 5], y escribe los documentos resultantes de manera atómica 
     en una nueva colección denominada 'genes_curados'[cite: 5]. Al finalizar, calcula métricas 
     del descarte e inicializa un índice para acelerar las búsquedas posteriores[cite: 5].
-
-    Raises:
-        pymongo.errors.ConnectionFailure: Si no es posible conectarse al servidor de MongoDB[cite: 2, 8].
-        ZeroDivisionError: Si la colección original está vacía y se intenta calcular 
-            el porcentaje de descarte.
     """
     client = MongoClient("mongodb://localhost:27017/")
     db = client["viromica_db"]
@@ -76,7 +70,6 @@ def curar_datos() -> None:
     # Creamos índices en la nueva colección para la fase de clustering
     print("Creando índices en 'genes_curados'...")
     clean_col.create_index("protein_id")
-
 
 if __name__ == "__main__":
     curar_datos()

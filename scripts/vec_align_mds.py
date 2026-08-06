@@ -1,9 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Vectorización masiva por Alineamiento e Inferencia de Landmarks mediante CUDA.
+"""Vectorización Masiva por Alineamiento e Inferencia de Landmark MDS mediante CUDA.
 
-Optimizado con padding dinámico por micro-lote para evitar OOM en GPUs de 12GB VRAM.
+Calcula representaciones vectoriales densas para el conjunto completo de secuencias en 
+'genes_curados' (690,579) mediante el método de Landmark Multidimensional Scaling (LMDS) 
+acelerado por hardware en GPU (PyTorch/CUDA).
+
+Flujo de trabajo:
+-----------------
+1. Selección de un subconjunto de secuencias de referencia (*Landmarks*, $N_L = 5,000$).
+2. Cálculo de la matriz de distancias cruzadas Hamming relativas ($N_L \times N_L$) totalmente 
+   vectorizada en GPU con alineamiento y padding dinámico.
+3. Estimación del subespacio métrico base ($d=50$) sobre los Landmarks usando Escalado 
+   Multidimensional Módulo Métrico (MDS con la seudoinversa de Moore-Penrose).
+4. Proyección masiva por lotes (*batches*) e inferencia en GPU de las 690,579 secuencias hacia 
+   el subespacio $d=50$ utilizando micro-lotes para evitar desbordamientos de memoria VRAM (OOM).
+5. Persistencia de los embeddings continuos (`align_mds_vector`) en la colección `vec_align_mds` 
+   de MongoDB con indexación en `protein_id`.
 """
 
 import gc
@@ -14,9 +28,9 @@ from pymongo import MongoClient
 from sklearn.manifold import MDS
 from tqdm import tqdm
 
-
 def get_cuda_device() -> torch.device:
-    """Detecta y retorna el dispositivo CUDA si está disponible."""
+    """Detecta la disponibilidad de un entorno de ejecución con aceleración por GPU CUDA.
+    """
     if torch.cuda.is_available():
         device = torch.device("cuda")
         print(f"[{time.strftime('%H:%M:%S')}] Aceleración CUDA activada: {torch.cuda.get_device_name(0)}")
@@ -25,9 +39,13 @@ def get_cuda_device() -> torch.device:
         print(f"[{time.strftime('%H:%M:%S')}] CUDA no disponible. Usando CPU.")
     return device
 
-
 def encode_sequences_dynamic(sequences: list[str], device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
-    """Convierte secuencias a tensores con padding dinámico ajustado estrictamente al lote."""
+    """Codifica un lote de cadenas de texto de aminoácidos en tensores PyTorch usando ASCII.
+
+    Aplica un relleno (*padding*) dinámico ajustado exactamente a la longitud de la secuencia
+    más larga dentro del lote actual, evitando desperdiciar memoria VRAM con dimensiones fijas
+    globales.
+    """
     n = len(sequences)
     max_len = max(len(s) for s in sequences) if sequences else 1
     
@@ -39,14 +57,18 @@ def encode_sequences_dynamic(sequences: list[str], device: torch.device) -> tupl
     lengths = torch.tensor([len(s) for s in sequences], dtype=torch.float32, device=device)
     return tensor_seqs, lengths
 
-
 def compute_cross_distances_gpu(
     batch_seqs: list[str], 
     landmark_seqs: list[str], 
     device: torch.device,
     micro_batch_size: int = 50
 ) -> torch.Tensor:
-    """Calcula distancias Hamming relativas usando micro-lotes y padding dinámico estricto."""
+    """Calcula la matriz de distancias Hamming relativas cruzadas entre dos conjuntos de secuencias en GPU.
+
+    Utiliza micro-lotes y difusión (*broadcasting*) en tensores 3D para evaluar desacoples 
+    y normalizar por la longitud máxima de par. Procesa los Landmarks en bloques para acotar 
+    el consumo máximo de VRAM.
+    """
     n_batch = len(batch_seqs)
     n_landmarks = len(landmark_seqs)
     dist_matrix = torch.zeros((n_batch, n_landmarks), dtype=torch.float32, device=device)
@@ -92,9 +114,13 @@ def compute_cross_distances_gpu(
 
     return dist_matrix
 
-
 def run_landmark_alignment_mds_full(n_components: int = 50, n_landmarks: int = 5000, batch_size: int = 5000) -> None:
-    """Pipeline principal de Landmark MDS sobre la totalidad de los 690.579 genes."""
+    """Ejecuta la canalización completa de entrenamiento e inferencia masiva de Landmark MDS.
+
+    Extrae los Landmarks, calcula la matriz métrica base en GPU, ajusta la proyección MDS 
+    con `scikit-learn` y realiza la transformación lineal masiva para los 690,579 genes, 
+    guardando el resultado por lotes en MongoDB.
+    """
     device = get_cuda_device()
     
     client = MongoClient("mongodb://localhost:27017/", maxPoolSize=50)
@@ -167,7 +193,6 @@ def run_landmark_alignment_mds_full(n_components: int = 50, n_landmarks: int = 5
     dst_col.create_index("protein_id")
     print(f"[{time.strftime('%H:%M:%S')}] Proceso completado. Insertados: {inserted:,} documentos.")
 
-
 def _process_and_insert_batch(
     batch_docs: list[dict], 
     landmark_seqs: list[str], 
@@ -176,7 +201,12 @@ def _process_and_insert_batch(
     device: torch.device, 
     dst_col
 ) -> None:
-    """Calcula distancias a landmarks en GPU, proyecta y guarda en MongoDB."""
+    """Proyecta un lote de documentos al subespacio MDS e inserta los vectores en MongoDB.
+
+    Calcula las distancias desde el lote hacia los Landmarks en GPU, aplica el centrado
+    de distancias, realiza la multiplicación matricial con la seudoinversa del espacio Landmark
+    y persiste la estructura resultante mediante una inserción masiva.
+    """
     protein_ids = [d["protein_id"] for d in batch_docs]
     sequences = [d["aa_sequence"] for d in batch_docs]
 
@@ -194,7 +224,6 @@ def _process_and_insert_batch(
         for p_id, vec in zip(protein_ids, embeddings)
     ]
     dst_col.insert_many(mongo_batch, ordered=False)
-
 
 if __name__ == "__main__":
     run_landmark_alignment_mds_full(n_components=50, n_landmarks=5000, batch_size=5000)

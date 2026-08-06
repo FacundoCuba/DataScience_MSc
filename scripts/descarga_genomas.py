@@ -23,20 +23,12 @@ INPUT_FILE = "accession_list_acotada.txt"
 OUTPUT_DIR = "database_gb"
 BATCH_SIZE = 100 
 
-
 def obtener_ruta_archivo(accession: str, base_dir: str) -> str:
     """Crea una ruta jerárquica para evitar colapsar el sistema de archivos.
 
     Toma un número de acceso de GenBank y distribuye el archivo resultante en 
     subcarpetas basadas en sus primeros caracteres. Por ejemplo:
     'NC_001422' se guardará en '{base_dir}/NC/00/NC_001422.gb'.
-
-    Args:
-        accession (str): Identificador único o número de acceso de GenBank.
-        base_dir (str): Directorio raíz donde se estructurará la base de datos.
-
-    Returns:
-        str: Ruta completa destino donde se almacenará el archivo .gb.
     """
     prefix = accession[:2] 
     sub_prefix = accession[3:5] if len(accession) > 5 else "00"
@@ -45,7 +37,6 @@ def obtener_ruta_archivo(accession: str, base_dir: str) -> str:
         os.makedirs(path, exist_ok=True)
     return os.path.join(path, f"{accession}.gb")
 
-
 def descargar_y_fragmentar(accessions: list, batch_size: int, output_dir: str) -> None:
     """Descarga registros de NCBI en lotes y los guarda de forma individual.
 
@@ -53,15 +44,6 @@ def descargar_y_fragmentar(accessions: list, batch_size: int, output_dir: str) -
     automáticamente aquellos registros que ya fueron descargados previamente para 
     permitir la reanudación del proceso. Implementa una política de hasta 3 
     reintentos con backoff exponencial en caso de fallas de conexión o límites de API.
-
-    Args:
-        accessions (list of str): Lista de identificadores de NCBI a descargar.
-        batch_size (int): Cantidad de registros a solicitar en cada consulta HTTP.
-        output_dir (str): Directorio raíz donde almacenar los genomas descargados.
-
-    Raises:
-        Exception: Si un lote falla repetidamente tras agotar los 3 reintentos, 
-            reporta el error en consola y continúa con el siguiente lote.
     """
     total = len(accessions)
     print(f"[{time.strftime('%H:%M:%S')}] Iniciando descarga de {total} registros...")
@@ -102,7 +84,6 @@ def descargar_y_fragmentar(accessions: list, batch_size: int, output_dir: str) -
                 time.sleep(15 * reintentos) # Espera incremental
         
         time.sleep(0.3)
-
 
 if __name__ == "__main__":
     if not os.path.exists(INPUT_FILE):

@@ -16,7 +16,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pymongo import MongoClient
 
-
 def run_eda() -> None:
     """Ejecuta el análisis exploratorio de datos y genera visualizaciones clave.
 
@@ -25,14 +24,6 @@ def run_eda() -> None:
     cuatro paneles con un histograma de longitudes, un gráfico de barras de
     organismos, un gráfico de torta de hospedadores y un boxplot para la
     detección visual de outliers en el tamaño de las proteínas[cite: 8].
-
-    Files generated:
-        eda_viromica_results.png (matplotlib figure): Gráfico de 4 paneles que
-            resume los aspectos clave de los datos curados.
-
-    Raises:
-        pymongo.errors.ConnectionFailure: Si no se logra establecer la conexión
-            con la base de datos local de MongoDB[cite: 2, 8].
     """
     # 1. Conexión
     client = MongoClient("mongodb://localhost:27017/")
@@ -103,20 +94,12 @@ def run_eda() -> None:
     print(f"\nEstadísticas de Longitud:")
     print(df_len.describe())
 
-
 def generar_reporte_texto() -> None:
     """Genera un reporte consolidado de texto plano a partir de los datos en MongoDB.
 
     Calcula métricas descriptivas clave del conjunto de secuencias (conteo total,
     promedio de longitud, percentiles, etc.) y lista los principales virus y
     hospedadores mapeados en el ecosistema, persistiendo la información de manera legible[cite: 8].
-
-    Files generated:
-        reporte_eda_viromica.txt (utf-8 text file): Reporte estructurado con
-            las métricas descriptivas más relevantes[cite: 8].
-
-    Raises:
-        pymongo.errors.ConnectionFailure: Si falla la comunicación con MongoDB[cite: 2, 8].
     """
     client = MongoClient("mongodb://localhost:27017/")
     db = client["viromica_db"]
@@ -170,7 +153,6 @@ def generar_reporte_texto() -> None:
             f.write(f"{str(row['_id']):<50} | {row['count']}\n")
 
     print("Reporte guardado exitosamente en 'reporte_eda_viromica.txt'")
-
 
 if __name__ == "__main__":
     run_eda()

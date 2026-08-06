@@ -1,10 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Vectorización masiva de secuencias proteicas mediante estadística de composición (K-mers).
+"""Vectorización Masiva de Secuencias Proteicas mediante Estadística de k-Mers.
 
-Procesa el total de secuencias en 'genes_curados' (690,579) y almacena 
-los vectores de frecuencias relativas en la colección 'vec_kmers'.
+Procesa el universo completo de secuencias contenidas en la colección 'genes_curados' 
+(690,579 documentos) y persiste las representaciones dispersas basadas en la frecuencia 
+relativa de $k$-mers en la colección 'vec_kmers' de MongoDB.
+
+Flujo de trabajo:
+-----------------
+1. Lectura por lotes (*batching*) mediante un cursor persistente (`no_cursor_timeout=True`)
+   para gestionar de manera eficiente el volumen masivo de datos sin agotar el timeout de MongoDB.
+2. Extracción de $k$-mers ($k=5$ por defecto) mediante una ventana deslizante de paso 1 
+   y normalización por longitud de secuencia.
+3. Persistencia por bloques (`insert_many`) en la colección `vec_kmers`, almacenando 
+   el identificador único (`protein_id`), el diccionario de frecuencias dispersas y el tamaño $k$.
+4. Creación automatizada de índices sobre `protein_id` en la colección destino para optimizar
+   las búsquedas y cruces en etapas posteriores del pipeline.
 """
 
 from collections import Counter
@@ -12,9 +24,13 @@ from pymongo import MongoClient
 from tqdm import tqdm
 import time
 
+def extract_kmers(sequence: str, k: int = 5) -> dict[str, float]:
+    """Calcula el perfil de frecuencias relativas de $k$-mers para una secuencia proteica.
 
-def extract_kmers(sequence: str, k: int = 3) -> dict[str, float]:
-    """Calcula la frecuencia relativa de k-mers en una secuencia de aminoácidos."""
+    Extrae todas las subsucesiones continuas de longitud `k` utilizando una ventana deslizante.
+    Mapea el resultado en un diccionario esparcido que asigna a cada $k$-mer observado su 
+    frecuencia relativa normalizada por la cantidad total de subcadenas extraíbles ($N - k + 1$).
+    """
     n = len(sequence)
     if not sequence or n < k:
         return {}
@@ -23,9 +39,13 @@ def extract_kmers(sequence: str, k: int = 3) -> dict[str, float]:
     kmers_counts = Counter(sequence[i:i+k] for i in range(total_kmers))
     return {kmer: count / total_kmers for kmer, count in kmers_counts.items()}
 
+def run_kmers_vectorization_full(k: int = 5, chunk_size: int = 10000) -> None:
+    """Ejecuta el pipeline masivo de vectorización por $k$-mers sobre la colección 'genes_curados'.
 
-def run_kmers_vectorization_full(k: int = 3, chunk_size: int = 10000) -> None:
-    """Procesa masivamente los 690,579 genes y los persiste en 'vec_kmers'."""
+    Limpia la colección de destino 'vec_kmers', lee los datos mediante un cursor por bloques 
+    e inserta los vectores resultantes por lotes (`insert_many`) supervisando el progreso 
+    con `tqdm`. Al finalizar la inserción, genera un índice secundario sobre `protein_id`.
+    """
     client = MongoClient("mongodb://localhost:27017/", maxPoolSize=50)
     db = client["viromica_db"]
     src_col = db["genes_curados"]
@@ -79,6 +99,5 @@ def run_kmers_vectorization_full(k: int = 3, chunk_size: int = 10000) -> None:
     dst_col.create_index("protein_id")
     print(f"[{time.strftime('%H:%M:%S')}] Proceso finalizado exitosamente. Insertados: {inserted:,} documentos.")
 
-
 if __name__ == "__main__":
-    run_kmers_vectorization_full(k=3, chunk_size=10000)
+    run_kmers_vectorization_full(k=5, chunk_size=10000)

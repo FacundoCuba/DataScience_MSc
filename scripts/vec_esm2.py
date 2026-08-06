@@ -1,11 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Vectorización masiva de secuencias proteicas mediante ESM-2 (pLLM).
+"""Vectorización Masiva de Secuencias Proteicas mediante ESM-2 (pLLM) en CUDA.
 
-Este script implementa la tercera estrategia del Objetivo Específico 2 para los 690.579 genes.
-Extrae las representaciones latentes (embeddings) de las secuencias curadas utilizando ESM-2 
-acelerado por CUDA (FP16, Mean Pooling) y las persiste eficientemente en la colección 'vec_esm2'.
+Extrae las representaciones latentes (embeddings continuos) para el conjunto completo 
+de secuencias en 'genes_curados' (690,579) utilizando el lenguaje de modelado proteico 
+ESM-2 (Protein Large Language Model) optimizado mediante cómputo distribuido en GPU 
+(PyTorch / HuggingFace Transformers).
+
+Flujo de trabajo:
+-----------------
+1. Carga del modelo de lenguaje proteico ESM-2 (`facebook/esm2_t12_35M_UR50D`) y su tokenizador.
+2. Recuperación en streaming mediante cursores `no_cursor_timeout` de MongoDB desde la 
+   colección origen (`genes_curados`).
+3. Tokenización dinámica por lotes con truncamiento explícito en 1,175 aminoácidos y 
+   generación automática de máscaras de atención (`attention_mask`).
+4. Inferencia del estado oculto (*last hidden state*) acelerada por GPU usando Precisión 
+   Mixta Automática (FP16 via `torch.amp.autocast`).
+5. Agregación espacio-secuencial mediante *Mean Pooling* en GPU, ponderando únicamente los 
+   residuos válidos (descartando tokens de padding).
+6. Persistencia masiva de vectores (`esm2_vector`) e indexación única por `protein_id` en 
+   la colección destino (`vec_esm2`).
 """
 
 import gc
@@ -15,13 +30,16 @@ from pymongo import MongoClient
 from tqdm import tqdm
 from transformers import AutoTokenizer, EsmModel
 
-
 def run_esm2_vectorization_full(
     model_name: str = "facebook/esm2_t12_35M_UR50D", 
     batch_size: int = 64,
-    max_length: int = 1024
+    max_length: int = 1175
 ) -> None:
-    """Extrae embeddings de ESM-2 usando Mean Pooling y precisión mixta para los 690.579 genes."""
+    """Ejecuta la canalización de vectorización masiva con ESM-2 para 690,579 genes.
+
+    Gestiona la conexión streaming con MongoDB, la carga e inferencia del modelo pLLM
+    en batches optimizados para GPU y la creación posterior de índices.
+    """
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"[{time.strftime('%H:%M:%S')}] Dispositivo asignado: {device}")
 
@@ -80,7 +98,6 @@ def run_esm2_vectorization_full(
     dst_col.create_index("protein_id")
     print(f"[{time.strftime('%H:%M:%S')}] Vectorización ESM-2 finalizada exitosamente. Insertados: {inserted:,} documentos.")
 
-
 def _process_and_insert_esm_batch(
     batch_docs: list[dict],
     model: torch.nn.Module,
@@ -90,7 +107,12 @@ def _process_and_insert_esm_batch(
     model_name: str,
     max_length: int
 ) -> None:
-    """Procesa un lote de secuencias con ESM-2 usando FP16 y las persiste en MongoDB."""
+    """Procesa un lote de secuencias con ESM-2 en FP16, aplica Mean Pooling y persiste en MongoDB.
+
+    Tokeniza las secuencias, ejecuta la pasada hacia adelante bajo precisión mixta 
+    (`torch.amp.autocast`), reduce los estados ocultos promediando sobre la dimensión 
+    secuencial (descartando el relleno) e inserta los embeddings en la base de datos.
+    """
     sequences = [d["aa_sequence"] for d in batch_docs]
     protein_ids = [d["protein_id"] for d in batch_docs]
 
@@ -127,11 +149,10 @@ def _process_and_insert_esm_batch(
     
     dst_col.insert_many(mongo_batch, ordered=False)
 
-
 if __name__ == "__main__":
     # Batch size 64 funciona impecablemente en GPUs de 12GB como la RTX 5070 con FP16
     run_esm2_vectorization_full(
         model_name="facebook/esm2_t12_35M_UR50D", 
         batch_size=64, 
-        max_length=1024
+        max_length=1175
     )

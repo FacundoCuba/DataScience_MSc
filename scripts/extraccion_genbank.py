@@ -32,21 +32,12 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-
 def procesar_archivo_gb(file_path: str) -> list:
     """Extrae CDS de un archivo GenBank de forma resiliente.
 
     Lee el archivo en modo binario para prevenir fallos por códecs corruptos,
     parsea las anotaciones taxonómicas, el hospedador, y extrae los fragmentos
     CDS con sus secuencias nucleotídicas, traducciones proteicas y coordenadas de posición.
-
-    Args:
-        file_path (str): Ruta completa al archivo GenBank (.gb) a procesar.
-
-    Returns:
-        list of dict: Una lista de diccionarios, donde cada elemento representa
-            un gen/proteína (CDS) listo para ser indexado en MongoDB. Devuelve
-            una lista vacía si ocurre un error irrecuperable de lectura.
     """
     genes_del_archivo = []
     try:
@@ -106,7 +97,6 @@ def procesar_archivo_gb(file_path: str) -> list:
     
     return genes_del_archivo
 
-
 def main() -> None:
     """Orquesta la lectura paralela de los archivos y realiza la ingesta masiva en base de datos.
 
@@ -162,7 +152,6 @@ def main() -> None:
 
     client.close()
     print(f"[{time.strftime('%H:%M:%S')}] Finalizado. Total: {contador_total}")
-
 
 if __name__ == "__main__":
     main()

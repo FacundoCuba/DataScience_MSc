@@ -12,7 +12,6 @@ secuencial clásico (como CD-HIT o MMseqs2) en las fases posteriores de validaci
 
 from pymongo import MongoClient
 
-
 def exportar() -> None:
     """Exporta las proteínas curadas desde MongoDB hacia un archivo plano en formato FASTA.
 
@@ -20,15 +19,6 @@ def exportar() -> None:
     exclusivamente mediante proyección el identificador de la proteína y su secuencia[cite: 5]. 
     Escribe cada registro siguiendo la nomenclatura formal de cabecera de FASTA ('>ID_PROTEINA' 
     seguido por la secuencia de caracteres de aminoácidos en la siguiente línea).
-
-    Files generated:
-        genes_curados.fasta (text file): Archivo multifasta conteniendo todas las 
-            secuencias curadas del dataset listas para su procesamiento bioinformático.
-
-    Raises:
-        pymongo.errors.ConnectionFailure: Si se pierde la comunicación con el motor local de MongoDB.
-        KeyError: Si algún documento de la colección carece de las propiedades 'protein_id' 
-            o 'aa_sequence'.
     """
     client = MongoClient("mongodb://localhost:27017/")
     db = client["viromica_db"]
@@ -40,7 +30,6 @@ def exportar() -> None:
             # Usamos el protein_id como cabecera
             f.write(f">{doc['protein_id']}\n{doc['aa_sequence']}\n")
     print("Listo: genes_curados.fasta")
-
 
 if __name__ == "__main__":
     exportar()
