@@ -1,45 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Benchmark de Representaciones Vectoriales enfocado en Anotación Funcional Proteica.
+"""Benchmark de Agrupamiento sobre Representaciones Vectoriales Singulares.
 
-Este script evalúa y compara cuantitativamente la capacidad de distintas representaciones
-vectoriales (embeddings) para capturar la función biológica de secuencias proteicas 
-mediante algoritmos de agrupamiento (clustering).
+Este script evalúa y compara el desempeño de tres paradigmas de clustering:
+  1. Basado en Centroides: MiniBatchKMeans (k=100)
+  2. Basado en Densidad: UMAP (d=10) + HDBSCAN
+  3. Basado en Grafos: Grafo k-NN + Algoritmo de Leiden
 
-Estrategias de Representación Evaluadas:
-    1. 5-Mers (vec_kmers): Frecuencias de subpalabras de 5 aminoácidos (representadas como
-       matrices dispersas CSR de ultra-alta dimensionalidad).
-    2. Landmark MDS (vec_align_mds): Proyección métrica global de distancias de alineamiento 
-       de secuencia respecto a puntos de referencia (landmarks).
-    3. ESM-2 pLLM (vec_esm2): Embeddings densos derivados del modelo de lenguaje proteico de 
-       gran escala ESM-2 (promedio de la última capa oculta).
-
-Estrategias de Agrupamiento Comparadas:
-    - MiniBatchKMeans (k=100): Particionamiento esférico directo sobre el espacio original.
-    - Pipeline UMAP (d=10) + HDBSCAN: Reducción manifold no lineal basada en métrica coseno 
-      seguida de agrupamiento por densidad con detección automática de ruido.
-
-Evaluación y Métricas:
-    - Ground Truth: Anotación funcional ('product') extraída de MongoDB (viromica_db.genes_curados).
-    - Métricas Externas (Supervisadas):
-        * Adjusted Rand Index (ARI_Product)
-        * Normalized Mutual Information (NMI_Product)
-    - Métricas Internas (No Supervisadas):
-        * Coeficiente de Silhouette (optimizada para matrices dispersas mediante métrica Coseno)
-        * Índice de Calinski-Harabasz
-        * Índice de Davies-Bouldin
-    - Estadísticas de Estructura: Clusters Detectados, Proporción de Ruido.
-
-Flujo de Ejecución:
-    1. Extrae una muestra aleatoria de secuencias con anotación válida de MongoDB.
-    2. Carga y alinea las tres matrices de embeddings correspondientes.
-    3. Ejecuta de forma secuencial MiniBatchKMeans y UMAP + HDBSCAN para cada representación.
-    4. Saca métricas de rendimiento y genera una tabla comparativa consolidada.
-    5. Exporta los resultados finales a 'benchmark_functional_annotation_results.csv'.
+La evaluación se realiza de forma independiente sobre cada espacio vectorial singular:
+  - 5-Mers (vec_kmers): Estadísticas de composición de subpalabras (matriz dispersa CSR).
+  - Landmark MDS (vec_align_mds): Proyección métrica global de alineamientos.
+  - ESM-2 pLLM (vec_esm2): Embeddings latentes de lenguaje proteico.
 """
 
 import time
+import igraph as ig
+import leidenalg
 import numpy as np
 import pandas as pd
 from pymongo import MongoClient
@@ -48,6 +25,8 @@ from hdbscan import HDBSCAN
 from scipy.sparse import issparse
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.feature_extraction import DictVectorizer
+from sklearn.neighbors import NearestNeighbors
+from sklearn.preprocessing import normalize
 from sklearn.metrics import (
     adjusted_rand_score,
     calinski_harabasz_score,
@@ -57,12 +36,8 @@ from sklearn.metrics import (
 )
 
 
-def load_functional_ground_truth(db, sample_size: int = 70000) -> tuple[dict, list[str], list[str]]:
+def load_functional_ground_truth(db, sample_size: int = 70000) -> tuple[dict, list[str]]:
     """Extrae una muestra representativa de secuencias proteicas con anotación funcional.
-
-    Consulta la colección `genes_curados` en MongoDB mediante una tubería de
-    agregación (pipeline) para filtrar secuencias que posean anotaciones válidas de 
-    `product` y `protein_id`, muestreando un subconjunto aleatorio.
     """
     print(f"[{time.strftime('%H:%M:%S')}] Extrayendo muestra de {sample_size:,} genes con anotación funcional...")
     src_col = db["genes_curados"]
@@ -79,12 +54,9 @@ def load_functional_ground_truth(db, sample_size: int = 70000) -> tuple[dict, li
     
     return protein_id_map, products
 
+
 def fetch_vectors_by_ids(col, vec_field: str, protein_id_map: dict, is_dict_vector: bool = False) -> tuple:
     """Recupera, vectoriza y alinea las representaciones vectoriales desde MongoDB.
-
-    Filtra la colección especificada obteniendo únicamente los vectores correspondientes
-    a las proteínas muestreadas en `protein_id_map`. Procesa las representaciones 
-    según la estructura subyacente (diccionarios dispersos de k-mers o arreglos densos).
     """
     print(f"[{time.strftime('%H:%M:%S')}] Obteniendo vectores de '{col.name}'...")
     cursor = col.find(
@@ -98,43 +70,36 @@ def fetch_vectors_by_ids(col, vec_field: str, protein_id_map: dict, is_dict_vect
     
     if is_dict_vector:
         dict_list = [raw_vectors[p_id] for p_id in valid_ids]
-        # USAR MATRIZ DISPERSA (sparse=True)
         vec_tool = DictVectorizer(sparse=True)
-        X = vec_tool.fit_transform(dict_list)  # Devuelve scipy.sparse.csr_matrix
+        X = vec_tool.fit_transform(dict_list)
     else:
         sample_val = raw_vectors[valid_ids[0]]
         if isinstance(sample_val, dict):
-            X = np.array([[v for _, v in sorted(raw_vectors[p_id].items(), key=lambda x: int(x[0]))] for p_id in valid_ids])
+            X = np.array([[v for _, v in sorted(raw_vectors[p_id].items(), key=lambda x: int(x[0]))] for p_id in valid_ids], dtype=np.float32)
         else:
-            X = np.array([raw_vectors[p_id] for p_id in valid_ids])
+            X = np.array([raw_vectors[p_id] for p_id in valid_ids], dtype=np.float32)
             
     return X, np.array(indices)
 
-def run_minibatch_kmeans(X: np.ndarray, n_clusters: int = 100) -> tuple[np.ndarray, np.ndarray]:
-    """Ejecuta el algoritmo de agrupamiento MiniBatchKMeans sobre el espacio completo.
 
-    Aplica un particionamiento geométrico esférico optimizado mediante mini-lotes, 
-    sirviendo como baseline de clustering directo sin reducción de dimensionalidad previo.
+def run_minibatch_kmeans(X, n_clusters: int = 100) -> tuple[np.ndarray, np.ndarray]:
+    """Ejecuta el particionamiento esférico MiniBatchKMeans sobre el espacio vectorial.
     """
     model = MiniBatchKMeans(n_clusters=n_clusters, random_state=42, batch_size=2048)
     labels = model.fit_predict(X)
     return labels, X
 
-def run_umap_hdbscan(X: np.ndarray, n_components: int = 10, min_cluster_size: int = 20) -> tuple[np.ndarray, np.ndarray]:
-    """Aplica reducción de dimensionalidad con UMAP seguida de clustering por densidad con HDBSCAN.
 
-    Proyecta el espacio vectorial de alta dimensión a un espacio manifold latente
-    preservando la estructura local mediante métrica Coseno. Posteriormente, detecta 
-    agrupamientos de forma arbitraria y asigna un id `-1` a secuencias ruidosas o atípicas.
+def run_umap_hdbscan(X, n_components: int = 10, min_cluster_size: int = 20) -> tuple[np.ndarray, np.ndarray]:
+    """Aplica reducción de dimensionalidad no lineal con UMAP seguida de clustering por densidad HDBSCAN.
     """
     print(f"[{time.strftime('%H:%M:%S')}] Reduciendo dimensión con UMAP (d={n_components})...")
-    
-    # Si la dimensión original es menor o igual a n_components, omitimos UMAP
     if X.shape[1] <= n_components:
-        X_reduced = X
+        X_reduced = X if isinstance(X, np.ndarray) else X.toarray()
     else:
+        X_norm = normalize(X, norm="l2", axis=1)
         reducer = umap.UMAP(n_components=n_components, n_neighbors=15, min_dist=0.1, metric="cosine", random_state=42)
-        X_reduced = reducer.fit_transform(X)
+        X_reduced = reducer.fit_transform(X_norm)
         
     print(f"[{time.strftime('%H:%M:%S')}] Ajustando HDBSCAN (min_cluster_size={min_cluster_size})...")
     clusterer = HDBSCAN(min_cluster_size=min_cluster_size, metric="euclidean", cluster_selection_method="eom")
@@ -142,12 +107,35 @@ def run_umap_hdbscan(X: np.ndarray, n_components: int = 10, min_cluster_size: in
     
     return labels, X_reduced
 
-def compute_functional_metrics(X_eval, labels: np.ndarray, y_product: np.ndarray) -> dict:
-    """Calcula un conjunto exhaustivo de métricas de evaluación supervisadas e internas.
 
-    Soporta eficientemente matrices dispersas y estructuras con ruido (etiquetas `-1`). 
-    Para optimizar el cómputo del Coeficiente de Silhouette en grandes volúmenes, realiza 
-    un submuestreo aleatorio de hasta 3,000 puntos válidos.
+def run_leiden_clustering(X, n_neighbors: int = 15) -> tuple[np.ndarray, np.ndarray]:
+    """Construye un grafo de k-Vecinos Más Cercanos (k-NN) y ejecuta la partición de comunidades de Leiden.
+
+    Calcula la topología de red utilizando distancia Coseno sobre los vectores normalizados L2,
+    convierte la matriz de adyacencia a un grafo de `igraph` y optimiza la modularidad mediante el algoritmo de Leiden.
+    """
+    print(f"[{time.strftime('%H:%M:%S')}] Construyendo grafo k-NN (k={n_neighbors}, metric=cosine)...")
+    X_norm = normalize(X, norm="l2", axis=1)
+    
+    nn = NearestNeighbors(n_neighbors=n_neighbors, metric="cosine", n_jobs=-1)
+    nn.fit(X_norm)
+    knn_matrix = nn.kneighbors_graph(X_norm, mode="connectivity")
+
+    print(f"[{time.strftime('%H:%M:%S')}] Construyendo grafo igraph y ejecutando algoritmo de Leiden...")
+    sources, targets = knn_matrix.nonzero()
+    edges = list(zip(sources, targets))
+    
+    g = ig.Graph(n=X.shape[0], edges=edges, directed=False)
+    g.simplify(combine_edges=None)
+
+    partition = leidenalg.find_partition(g, leidenalg.ModularityVertexPartition, seed=42)
+    labels = np.array(partition.membership)
+    
+    return labels, X_norm
+
+
+def compute_functional_metrics(X_eval, labels: np.ndarray, y_product: np.ndarray) -> dict:
+    """Calcula las métricas supervisadas (ARI, NMI) y no supervisadas (Silhouette, CH, DB).
     """
     valid_mask = labels != -1 if -1 in labels else np.ones(len(labels), dtype=bool)
     n_clusters = len(np.unique(labels[valid_mask]))
@@ -162,7 +150,6 @@ def compute_functional_metrics(X_eval, labels: np.ndarray, y_product: np.ndarray
 
     if np.sum(valid_mask) > 1 and n_clusters > 1:
         eval_indices = np.where(valid_mask)[0]
-        # Reducimos la muestra de evaluación a 3,000 para rapidez de Silhouette
         sample_size = min(3000, len(eval_indices))
         sub_sample_idx = np.random.choice(eval_indices, size=sample_size, replace=False)
         
@@ -171,7 +158,6 @@ def compute_functional_metrics(X_eval, labels: np.ndarray, y_product: np.ndarray
         
         try:
             if issparse(X_sub):
-                # Silhouette soporta scipy.sparse de forma nativa indicando métrica coseno
                 metrics["Silhouette"] = round(silhouette_score(X_sub, labels_sub, metric="cosine"), 4)
                 metrics["Calinski_Harabasz"] = np.nan
                 metrics["Davies_Bouldin"] = np.nan
@@ -187,18 +173,12 @@ def compute_functional_metrics(X_eval, labels: np.ndarray, y_product: np.ndarray
 
     return metrics
 
-def main():
-    """Flujo principal de ejecución del Benchmark.
 
-    Conecta a la base de datos de MongoDB (`viromica_db`), extrae la muestra de anotación 
-    funcional, iterativamente carga cada una de las 3 representaciones (5-Mers, Landmark MDS, 
-    ESM-2), aplica los dos métodos de clustering, calcula métricas, muestra la tabla 
-    comparativa por consola y exporta el archivo `benchmark_functional_annotation_results.csv`.
-    """
+def main():
+    """Ejecuta la evaluación comparativa completa de algoritmos sobre bases vectoriales singulares."""
     client = MongoClient("mongodb://localhost:27017/", maxPoolSize=50)
     db = client["viromica_db"]
 
-    # 1. Ground Truth enfocado únicamente en la función proteica
     sample_size = 70000
     protein_map, products = load_functional_ground_truth(db, sample_size=sample_size)
     
@@ -218,7 +198,7 @@ def main():
         X, valid_indices = fetch_vectors_by_ids(cfg["col"], cfg["field"], protein_map, is_dict_vector=cfg["is_dict"])
         y_prod = np.array([products[i] for i in valid_indices])
 
-        # Experimento 1: MiniBatchKMeans
+        # Experimento 1: MiniBatchKMeans (k=100)
         print(f" Running MiniBatchKMeans (k=100)...")
         labels_km, X_eval_km = run_minibatch_kmeans(X, n_clusters=100)
         res_km = compute_functional_metrics(X_eval_km, labels_km, y_prod)
@@ -234,7 +214,14 @@ def main():
         res_hdb["Algoritmo"] = "UMAP (d=10) + HDBSCAN"
         results.append(res_hdb)
 
-    # 2. Presentar tabla comparativa consolidada
+        # Experimento 3: Grafo k-NN (k=15) + Leiden
+        print(f" Running Grafo k-NN + Leiden...")
+        labels_lei, X_eval_lei = run_leiden_clustering(X, n_neighbors=15)
+        res_lei = compute_functional_metrics(X_eval_lei, labels_lei, y_prod)
+        res_lei["Estrategia"] = cfg["name"]
+        res_lei["Algoritmo"] = "Grafo k-NN + Leiden"
+        results.append(res_lei)
+
     df_results = pd.DataFrame(results)
     cols_order = [
         "Estrategia", "Algoritmo", "Clusters_Detectados", "Proporcion_Ruido", 
@@ -243,12 +230,13 @@ def main():
     df_results = df_results[cols_order]
 
     print("\n\n" + "="*85)
-    print(" EVALUACIÓN COMPARATIVA DE ANOTACIÓN FUNCIONAL PROTEICA")
+    print(" EVALUACIÓN COMPARATIVA MULTI-ALGORITMO EN ESPACIOS SINGULARES")
     print("="*85)
     print(df_results.to_string(index=False))
 
-    df_results.to_csv("benchmark_functional_annotation_results.csv", index=False)
-    print(f"\n[{time.strftime('%H:%M:%S')}] Resultados guardados en 'benchmark_functional_annotation_results.csv'.")
+    df_results.to_csv("benchmark_singular_algorithms_results.csv", index=False)
+    print(f"\n[{time.strftime('%H:%M:%S')}] Resultados guardados en 'benchmark_singular_algorithms_results.csv'.")
+
 
 if __name__ == "__main__":
     main()
