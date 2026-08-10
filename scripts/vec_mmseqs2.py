@@ -4,7 +4,7 @@
 """Vectorización de Secuencias mediante Clustering Multiresolución con MMseqs2 (Linclust).
 
 Optimizado para escalado masivo (690k+ secuencias) mediante agrupamiento
-lineal a múltiples umbrales de identidad (0.4 a 1.0).
+lineal a múltiples umbrales de identidad (0.3 a 1.0).
 """
 
 import os
@@ -37,7 +37,7 @@ def run_mmseqs2_vectorization(
     db_name: str = "viromica_db",
     src_collection: str = "genes_curados",
     dst_collection: str = "vec_mmseqs2",
-    thresholds: list[float] = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    thresholds: list[float] = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 ) -> None:
     client = MongoClient("mongodb://localhost:27017/", maxPoolSize=50)
     db = client[db_name]
@@ -97,7 +97,8 @@ def run_mmseqs2_vectorization(
         mongo_batch.append({
             "protein_id": p_id,
             "mmseqs2_vector": profiles[p_id],
-            "thresholds_eval": sorted(thresholds)s
+            "thresholds_eval": sorted(thresholds),
+            "model_name": "MMseqs2_MultiThreshold"
         })
 
         if len(mongo_batch) >= 5000:

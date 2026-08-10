@@ -11,7 +11,7 @@ Flujo de trabajo:
 -----------------
 1. Lectura por lotes (*batching*) mediante un cursor persistente (`no_cursor_timeout=True`)
    para gestionar de manera eficiente el volumen masivo de datos sin agotar el timeout de MongoDB.
-2. Extracción de $k$-mers ($k=5$ por defecto) mediante una ventana deslizante de paso 1 
+2. Extracción de $k$-mers ($k=6$ por defecto) mediante una ventana deslizante de paso 1 
    y normalización por longitud de secuencia.
 3. Persistencia por bloques (`insert_many`) en la colección `vec_kmers`, almacenando 
    el identificador único (`protein_id`), el diccionario de frecuencias dispersas y el tamaño $k$.
@@ -24,7 +24,7 @@ from pymongo import MongoClient
 from tqdm import tqdm
 import time
 
-def extract_kmers(sequence: str, k: int = 5) -> dict[str, float]:
+def extract_kmers(sequence: str, k: int = 6) -> dict[str, float]:
     """Calcula el perfil de frecuencias relativas de $k$-mers para una secuencia proteica.
 
     Extrae todas las subsucesiones continuas de longitud `k` utilizando una ventana deslizante.
@@ -39,7 +39,7 @@ def extract_kmers(sequence: str, k: int = 5) -> dict[str, float]:
     kmers_counts = Counter(sequence[i:i+k] for i in range(total_kmers))
     return {kmer: count / total_kmers for kmer, count in kmers_counts.items()}
 
-def run_kmers_vectorization_full(k: int = 5, chunk_size: int = 10000) -> None:
+def run_kmers_vectorization_full(k: int = 6, chunk_size: int = 10000) -> None:
     """Ejecuta el pipeline masivo de vectorización por $k$-mers sobre la colección 'genes_curados'.
 
     Limpia la colección de destino 'vec_kmers', lee los datos mediante un cursor por bloques 
@@ -100,4 +100,4 @@ def run_kmers_vectorization_full(k: int = 5, chunk_size: int = 10000) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] Proceso finalizado exitosamente. Insertados: {inserted:,} documentos.")
 
 if __name__ == "__main__":
-    run_kmers_vectorization_full(k=5, chunk_size=10000)
+    run_kmers_vectorization_full(k=6, chunk_size=10000)

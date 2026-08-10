@@ -3,7 +3,7 @@
 
 """Vectorización de Secuencias mediante Perfil de Clusters Multiresolución con CD-HIT.
 
-Ejecuta CD-HIT en múltiples umbrales de identidad (0.4 a 1.0) para construir 
+Ejecuta CD-HIT en múltiples umbrales de identidad (0.6 a 1.0) para construir 
 un vector de pertenencia categórica/one-hot por secuencia.
 """
 
@@ -69,7 +69,7 @@ def run_cdhit_vectorization(
     db_name: str = "viromica_db",
     src_collection: str = "genes_curados",
     dst_collection: str = "vec_cdhit",
-    thresholds: list[float] = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+    thresholds: list[float] = [0.6, 0.7, 0.8, 0.9, 1.0],
     max_workers: int = 2
 ) -> None:
     client = MongoClient("mongodb://localhost:27017/", maxPoolSize=50)

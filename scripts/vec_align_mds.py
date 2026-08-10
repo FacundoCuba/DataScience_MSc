@@ -219,7 +219,8 @@ def _process_and_insert_batch(
         {
             "protein_id": p_id,
             "align_mds_vector": vec.tolist(),
-            "dimensions": n_components
+            "dimensions": n_components,
+            "model_name": "Landmark MDS"
         }
         for p_id, vec in zip(protein_ids, embeddings)
     ]
