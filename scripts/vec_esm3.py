@@ -46,8 +46,13 @@ def run_esm3_vectorization_full(
     # Asegurar índice para acelerar consultas y evitar duplicados
     dst_col.create_index("protein_id")
 
-    # Reanudación: identificar IDs ya vectorizados previamente
-    existing_ids = set(dst_col.distinct("protein_id"))
+    # Reanudación: extraer IDs evitando el límite BSON de 16MB de .distinct()
+    print(f"[{time.strftime('%H:%M:%S')}] Escaneando IDs ya procesados en MongoDB...")
+    existing_ids = {
+        doc["protein_id"] 
+        for doc in dst_col.find({}, {"protein_id": 1, "_id": 0}) 
+        if "protein_id" in doc
+    }
     if existing_ids:
         print(f"[{time.strftime('%H:%M:%S')}] Reanudando ejecución. Registros previas en MongoDB: {len(existing_ids):,}")
 
