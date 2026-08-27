@@ -3,46 +3,53 @@
 
 """Consolidación de Representaciones Vectoriales en MongoDB (Feature Store).
 
-Este script unifica en una sola colección ('genes_unified_features') los metadatos
-de anotación funcional ('product') de 'genes_curados' junto con sus tres espacios
-vectoriales correspondientes ('vec_kmers', 'vec_align_mds' y 'vec_esm2').
+Unifica en una sola colección ('genes_unified_features') los metadatos
+de anotación funcional ('product') de 'genes_curados' junto con sus cuatro espacios
+vectoriales correspondientes ('vec_kmers6', 'vec_align_mds', 'vec_esm3' y 'vec_prott5').
 
-El proceso realiza un join eficiente en memoria por lotes (chunks) utilizando
-'protein_id' como clave foránea, garantizando la consistencia 1:1 de los vectores
-y optimizando los I/O para experimentos de fusión.
+Estrategia:
+- Extrae la clave del vector dinámicamente buscando nombres conocidos (p. ej., 'kmer_vector', 'vector', etc.).
+- Filtra e inserta solo aquellas proteínas que cuenten con representación completa en los 4 espacios (intersección 1:1).
 """
 
 import time
 from pymongo import MongoClient
 from tqdm import tqdm
 
-def build_unified_collection(chunk_size: int = 5000):
-    """Ejecuta el pipeline de consolidación masiva de características proteicas.
 
-    Limpia la colección de destino 'genes_unified_features', extrae en streaming
-    los registros con anotación funcional ('product') y 'protein_id' válidos desde
-    'genes_curados', procesa la integración vectorial por lotes y genera índices
-    secundarios para acelerar consultas de benchmark.
-    """
+def _extract_vector_field(doc: dict, candidates: list[str]):
+    """Busca y extrae la clave del vector dentro de un documento según una lista de candidatos."""
+    if not doc:
+        return None
+    for cand in candidates:
+        if cand in doc and doc[cand] is not None:
+            return doc[cand]
+    return None
+
+
+def build_unified_collection(chunk_size: int = 5000):
+    """Ejecuta el pipeline de consolidación masiva de características proteicas."""
     client = MongoClient("mongodb://localhost:27017/", maxPoolSize=50)
     db = client["viromica_db"]
-    
+
     src_curados = db["genes_curados"]
-    col_kmers = db["vec_kmers"]
+    col_kmers6 = db["vec_kmers6"]
     col_mds = db["vec_align_mds"]
-    col_esm2 = db["vec_esm2"]
+    col_esm3 = db["vec_esm3"]
+    col_prott5 = db["vec_prott5"]
+
     dst_col = db["genes_unified_features"]
 
     print(f"[{time.strftime('%H:%M:%S')}] Reiniciando colección 'genes_unified_features'...")
     dst_col.drop()
 
-    # Filtrar solo genes que tengan anotación funcional 'product'
-    query = {"product": {"$ne": None}, "protein_id": {"$ne": None}}
+    # Filtrar solo genes que tengan anotación funcional 'product' y 'protein_id' válidos
+    query = {"product": {"$ne": None, "$ne": ""}, "protein_id": {"$ne": None, "$ne": ""}}
     total_docs = src_curados.count_documents(query)
     print(f"[{time.strftime('%H:%M:%S')}] Consolidando {total_docs:,} genes con anotación...")
 
     cursor = src_curados.find(query, {"protein_id": 1, "product": 1, "_id": 0}, no_cursor_timeout=True).batch_size(chunk_size)
-    
+
     inserted = 0
     batch_docs = []
 
@@ -51,53 +58,75 @@ def build_unified_collection(chunk_size: int = 5000):
             for doc in cursor:
                 batch_docs.append(doc)
                 if len(batch_docs) >= chunk_size:
-                    _process_and_insert_unified_batch(batch_docs, col_kmers, col_mds, col_esm2, dst_col)
-                    inserted += len(batch_docs)
+                    inserted += _process_and_insert_unified_batch(
+                        batch_docs, col_kmers6, col_mds, col_esm3, col_prott5, dst_col
+                    )
                     pbar.update(len(batch_docs))
                     batch_docs = []
 
             if batch_docs:
-                _process_and_insert_unified_batch(batch_docs, col_kmers, col_mds, col_esm2, dst_col)
-                inserted += len(batch_docs)
+                inserted += _process_and_insert_unified_batch(
+                    batch_docs, col_kmers6, col_mds, col_esm3, col_prott5, dst_col
+                )
                 pbar.update(len(batch_docs))
     finally:
         cursor.close()
 
-    print(f"[{time.strftime('%H:%M:%S')}] Indexando 'protein_id' y 'product'...")
+    print(f"[{time.strftime('%H:%M:%S')}] Creando índices en 'protein_id' y 'product'...")
     dst_col.create_index("protein_id")
     dst_col.create_index("product")
-    print(f"[{time.strftime('%H:%M:%S')}] Consolidación completada. Total: {inserted:,} documentos.")
+    print(f"[{time.strftime('%H:%M:%S')}] Consolidación completada. Total insertados con 4 vectores: {inserted:,} documentos.")
 
-def _process_and_insert_unified_batch(batch_docs, col_kmers, col_mds, col_esm2, dst_col):
-    """Recupera, integra y persiste un lote de documentos consolidados en MongoDB.
 
-    Obtiene en memoria los tres vectores asociados a los 'protein_id' del lote
-    desde sus respectivas colecciones ('vec_kmers', 'vec_align_mds', 'vec_esm2').
-    Filtra las proteínas que cuentan con representación completa en los tres espacios
-    y realiza una inserción masiva en la colección destino.
-    """
+def _process_and_insert_unified_batch(batch_docs, col_kmers6, col_mds, col_esm3, col_prott5, dst_col) -> int:
+    """Recupera, integra y persiste un lote de documentos consolidados en MongoDB."""
     p_ids = [d["protein_id"] for d in batch_docs]
 
-    # Indexar vectores del lote en memoria
-    kmers_map = {d["protein_id"]: d["kmer_vector"] for d in col_kmers.find({"protein_id": {"$in": p_ids}}, {"protein_id": 1, "kmer_vector": 1, "_id": 0})}
-    mds_map = {d["protein_id"]: d["align_mds_vector"] for d in col_mds.find({"protein_id": {"$in": p_ids}}, {"protein_id": 1, "align_mds_vector": 1, "_id": 0})}
-    esm2_map = {d["protein_id"]: d["esm2_vector"] for d in col_esm2.find({"protein_id": {"$in": p_ids}}, {"protein_id": 1, "esm2_vector": 1, "_id": 0})}
+    # Candidatos de nombres de campos posibles en cada colección
+    kmers_cands = ["kmer_vector", "kmer6_vector", "kmers6_vector", "vector"]
+    mds_cands = ["align_mds_vector", "vector"]
+    esm3_cands = ["esm3_vector", "vector"]
+    prott5_cands = ["prott5_vector", "vector"]
+
+    # Consultar lotes en MongoDB
+    raw_kmers = list(col_kmers6.find({"protein_id": {"$in": p_ids}}, {"_id": 0}))
+    raw_mds = list(col_mds.find({"protein_id": {"$in": p_ids}}, {"_id": 0}))
+    raw_esm3 = list(col_esm3.find({"protein_id": {"$in": p_ids}}, {"_id": 0}))
+    raw_prott5 = list(col_prott5.find({"protein_id": {"$in": p_ids}}, {"_id": 0}))
+
+    # Mapear por protein_id extrayendo el vector dinámicamente
+    kmers_map = {d["protein_id"]: _extract_vector_field(d, kmers_cands) for d in raw_kmers if "protein_id" in d}
+    mds_map = {d["protein_id"]: _extract_vector_field(d, mds_cands) for d in raw_mds if "protein_id" in d}
+    esm3_map = {d["protein_id"]: _extract_vector_field(d, esm3_cands) for d in raw_esm3 if "protein_id" in d}
+    prott5_map = {d["protein_id"]: _extract_vector_field(d, prott5_cands) for d in raw_prott5 if "protein_id" in d}
 
     unified_batch = []
     for d in batch_docs:
         p_id = d["protein_id"]
-        # Se requiere que la proteína exista en las tres colecciones vectoriales
-        if p_id in kmers_map and p_id in mds_map and p_id in esm2_map:
-            unified_batch.append({
-                "protein_id": p_id,
-                "product": d["product"],
-                "kmer_vector": kmers_map[p_id],
-                "align_mds_vector": mds_map[p_id],
-                "esm2_vector": esm2_map[p_id]
-            })
+        vec_kmers = kmers_map.get(p_id)
+        vec_mds = mds_map.get(p_id)
+        vec_esm3 = esm3_map.get(p_id)
+        vec_prott5 = prott5_map.get(p_id)
+
+        # Requisito estricto: la proteína debe tener vector válido en las 4 colecciones
+        if vec_kmers is not None and vec_mds is not None and vec_esm3 is not None and vec_prott5 is not None:
+            unified_batch.append(
+                {
+                    "protein_id": p_id,
+                    "product": d["product"],
+                    "kmers6_vector": vec_kmers,
+                    "align_mds_vector": vec_mds,
+                    "esm3_vector": vec_esm3,
+                    "prott5_vector": vec_prott5,
+                }
+            )
 
     if unified_batch:
         dst_col.insert_many(unified_batch, ordered=False)
+        return len(unified_batch)
+
+    return 0
+
 
 if __name__ == "__main__":
     build_unified_collection()

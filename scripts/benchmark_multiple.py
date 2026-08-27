@@ -1,24 +1,33 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Benchmark de Combinaciones Múltiples (Feature Fusion) de Embeddings.
+"""Benchmark de Feature Fusion acelerado por GPU (cuML / CuPy).
 
-Evalúa combinaciones de vectores (ej. kmers6 + prott5, esm3 + prott5)
-manejando matrices densas y diccionarios dispersos.
-Aplica normalización L2 previa a la concatenación horizontal.
+Alinea colecciones en MongoDB mediante $lookup en la base de datos,
+evitando errores de consistencia en memoria durante el Early Fusion.
 """
 
-import os
 import time
+import warnings
+
+warnings.filterwarnings("ignore", category=FutureWarning)
+
 import igraph as ig
 import leidenalg
 import numpy as np
 import pandas as pd
 from pymongo import MongoClient
-from scipy.sparse import issparse
+
+import cupy as cp
+import cupyx.scipy.sparse as cp_sparse
+import cuml
+from cuml.decomposition import TruncatedSVD as cumlTruncatedSVD
+from cuml.manifold import UMAP as cumlUMAP
+from cuml.cluster import HDBSCAN as cumlHDBSCAN
+from cuml.neighbors import NearestNeighbors as cumlNearestNeighbors
+
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.preprocessing import normalize
-from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics import (
     adjusted_rand_score,
     normalized_mutual_info_score,
@@ -27,105 +36,154 @@ from sklearn.metrics import (
     calinski_harabasz_score,
     homogeneity_completeness_v_measure,
 )
-import umap
-from hdbscan import HDBSCAN
 
 
-def extract_vector_or_dict(doc_field) -> np.ndarray | dict:
-    """Extrae el campo vectorial devolviendo un arreglo 1D o el diccionario disperso original."""
-    if isinstance(doc_field, list):
-        return np.array(doc_field, dtype=np.float32)
-    elif isinstance(doc_field, dict):
-        return doc_field
-    return np.array([], dtype=np.float32)
-
-
-def get_field_data(doc: dict, field_candidates: list[str]):
-    """Extrae la información del vector desde los campos candidatos."""
-    for field in field_candidates:
-        if field in doc and doc[field] is not None:
-            return extract_vector_or_dict(doc[field])
+def extract_dense_array(doc_field):
+    """Convierte listas, arrays o diccionarios indexados de Mongo a np.ndarray 1D float32."""
+    if doc_field is None:
+        return None
+    if isinstance(doc_field, (list, tuple, np.ndarray)):
+        arr = np.array(doc_field, dtype=np.float32)
+        return arr if arr.ndim == 1 and arr.size > 0 else None
+    if isinstance(doc_field, dict):
+        if not doc_field:
+            return None
+        try:
+            max_idx = max(int(k) for k in doc_field.keys())
+            arr = np.zeros(max_idx + 1, dtype=np.float32)
+            for k, v in doc_field.items():
+                arr[int(k)] = float(v)
+            return arr
+        except (ValueError, TypeError):
+            return None
     return None
 
 
-def load_and_normalize_vector(db, col_name: str, candidates: list[str], sample_ids: list[str]):
-    """Carga una colección de vectores (densa o dispersa) y aplica normalización L2."""
-    query_docs = db[col_name].find(
-        {"protein_id": {"$in": sample_ids}},
-        {field: 1 for field in ["_id", "protein_id"] + candidates},
-    )
+def fetch_aligned_fusion_sample(db, required_collections: list[str], sample_size: int = 70000):
+    """Alinea e interseca colecciones directamente en MongoDB mediante pipeline de $lookup."""
+    print(f"[{time.strftime('%H:%M:%S')}] Ejecutando $lookup en MongoDB para colecciones: {required_collections}")
+    
+    pipeline = [
+        {"$match": {"product": {"$exists": True, "$ne": None, "$ne": ""}, "protein_id": {"$exists": True, "$ne": None, "$ne": ""}}},
+        {"$sample": {"size": sample_size}}
+    ]
 
-    vec_map = {}
-    for d in query_docs:
-        p_id = d.get("protein_id")
-        data = get_field_data(d, candidates)
-        if p_id and data is not None and len(data) > 0:
-            vec_map[p_id] = data
+    for col in required_collections:
+        pipeline.extend([
+            {
+                "$lookup": {
+                    "from": col,
+                    "localField": "protein_id",
+                    "foreignField": "protein_id",
+                    "as": f"join_{col}"
+                }
+            },
+            {"$unwind": f"$join_{col}"}
+        ])
 
-    valid_ids = [p_id for p_id in sample_ids if p_id in vec_map]
-    if not valid_ids:
-        raise ValueError(f"No se encontraron vectores para {col_name}")
+    # Corrección en la proyección: referenciar al alias aplanado por $unwind
+    project_dict = {"_id": 0, "protein_id": 1, "product": 1}
+    for col in required_collections:
+        project_dict[col] = f"$join_{col}"
 
-    sample_val = vec_map[valid_ids[0]]
+    pipeline.append({"$project": project_dict})
 
-    # Si es diccionario disperso (ej. k-mers)
-    if isinstance(sample_val, dict):
-        dict_list = [vec_map[p_id] for p_id in valid_ids]
+    docs = list(db["genes_curados"].aggregate(pipeline, allowDiskUse=True))
+    if not docs:
+        raise ValueError("No se encontraron documentos coincidentes en la intersección de colecciones.")
+
+    print(f"[{time.strftime('%H:%M:%S')}] Registros perfectamente intersecados: {len(docs):,}")
+    return docs
+
+
+def process_feature_space(docs: list, col_name: str, candidates: list[str], is_kmer: bool, n_svd_components: int = 256):
+    """Extrae y normaliza un espacio vectorial a partir de los documentos unificados."""
+    extracted_data = []
+    for d in docs:
+        sub_doc = d.get(col_name, {})
+        # Si sub_doc sigue siendo una lista (por alguna inconsistencia en el pipeline), tomar el primer elemento
+        if isinstance(sub_doc, list) and len(sub_doc) > 0:
+            sub_doc = sub_doc[0]
+
+        val = None
+        if isinstance(sub_doc, dict):
+            for cand in candidates:
+                if cand in sub_doc and sub_doc[cand] is not None:
+                    val = sub_doc[cand]
+                    break
+        extracted_data.append(val)
+
+    if is_kmer:
+        # Lógica Dispersa (DictVectorizer) -> Conversión a GPU -> SVD en cuML
+        clean_dicts = []
+        for v in extracted_data:
+            if isinstance(v, dict) and len(v) > 0:
+                clean_dicts.append({str(k): float(val) for k, val in v.items() if isinstance(val, (int, float, np.number))})
+            else:
+                clean_dicts.append({})
+
         vectorizer = DictVectorizer(sparse=True, dtype=np.float32)
-        X_sparse = vectorizer.fit_transform(dict_list)
-        X_norm = normalize(X_sparse, norm="l2", axis=1)
-        # Se convierte a denso para permitir concatenación horizontal limpia
-        return X_norm.toarray(), valid_ids
+        X_sparse_cpu = vectorizer.fit_transform(clean_dicts).tocsr()
+
+        n_feats = X_sparse_cpu.shape[1]
+        if n_feats == 0:
+            raise ValueError(f"No se extrajeron features en la colección {col_name}.")
+
+        actual_svd = min(n_svd_components, n_feats - 1) if n_feats > 1 else 1
+
+        # FIX CLAVE: Convertir la matriz de SciPy (CPU) a CuPy Sparse CSR (GPU)
+        X_sparse_gpu = cp_sparse.csr_matrix(X_sparse_cpu, dtype=cp.float32)
+
+        svd = cumlTruncatedSVD(n_components=actual_svd, random_state=42)
+        X_dense_gpu = svd.fit_transform(X_sparse_gpu)
+        
+        X_dense = cp.asnumpy(X_dense_gpu) if isinstance(X_dense_gpu, cp.ndarray) else np.asarray(X_dense_gpu)
+        return normalize(X_dense.astype(np.float32), norm="l2", axis=1)
     else:
-        X = np.array([vec_map[p_id] for p_id in valid_ids], dtype=np.float32)
-        X_norm = normalize(X, norm="l2", axis=1)
-        return X_norm, valid_ids
+        # Lógica Densa (Arrays NumPy)
+        vecs = [extract_dense_array(v) for v in extracted_data]
+        first_valid = next((v for v in vecs if v is not None), None)
+        if first_valid is None:
+            raise ValueError(f"No se encontraron vectores densos válidos en la columna {col_name}")
 
-
-def build_fused_matrix(db, combo_configs: list, sample_ids: list[str], protein_id_to_product: dict):
-    """Combina múltiples colecciones de vectores mediante concatenación horizontal."""
-    # 1. Filtrar los IDs que existen en TODAS las colecciones seleccionadas de la combinación
-    current_valid_ids = set(sample_ids)
-
-    for col_name, candidates in combo_configs:
-        query_ids = db[col_name].distinct("protein_id", {"protein_id": {"$in": list(current_valid_ids)}})
-        current_valid_ids.intersection_update(query_ids)
-
-    valid_ids = list(current_valid_ids)
-    if not valid_ids:
-        raise ValueError("La intersección de IDs entre las colecciones seleccionadas quedó vacía.")
-
-    # 2. Cargar y concatenar horizontalmente
-    matrices = []
-    for col_name, candidates in combo_configs:
-        X_norm, _ = load_and_normalize_vector(db, col_name, candidates, valid_ids)
-        matrices.append(X_norm)
-
-    X_fused = np.hstack(matrices)
-    y_fused = np.array([protein_id_to_product[p_id] for p_id in valid_ids])
-
-    return X_fused, y_fused, valid_ids
+        dim = first_valid.shape[0]
+        clean_vecs = [
+            v if (v is not None and isinstance(v, np.ndarray) and v.ndim == 1 and v.shape[0] == dim) 
+            else np.zeros(dim, dtype=np.float32) 
+            for v in vecs
+        ]
+        
+        X = np.vstack(clean_vecs).astype(np.float32)
+        return normalize(X, norm="l2", axis=1)
 
 
 def run_umap_hdbscan(X, min_cluster_size=20):
-    reducer = umap.UMAP(n_components=10, n_neighbors=15, min_dist=0.1, metric="cosine", random_state=42)
-    X_reduced = reducer.fit_transform(X)
-    
-    clusterer = HDBSCAN(min_cluster_size=min_cluster_size, metric="euclidean", cluster_selection_method="eom")
-    labels = clusterer.fit_predict(X_reduced)
+    reducer = cumlUMAP(n_components=10, n_neighbors=15, min_dist=0.1, metric="cosine", random_state=42)
+    X_reduced_gpu = reducer.fit_transform(X)
+
+    clusterer = cumlHDBSCAN(min_cluster_size=min_cluster_size, metric="euclidean", cluster_selection_method="eom")
+    labels_gpu = clusterer.fit_predict(X_reduced_gpu)
+
+    X_reduced = cp.asnumpy(X_reduced_gpu) if isinstance(X_reduced_gpu, cp.ndarray) else X_reduced_gpu
+    labels = cp.asnumpy(labels_gpu) if isinstance(labels_gpu, cp.ndarray) else labels_gpu
+
     return labels, X_reduced
 
 
 def run_knn_leiden(X_reduced, k_neighbors=15, resolution=0.005):
-    nn = NearestNeighbors(n_neighbors=k_neighbors, metric="euclidean", n_jobs=-1)
+    nn = cumlNearestNeighbors(n_neighbors=k_neighbors, metric="euclidean")
     nn.fit(X_reduced)
-    knn_graph = nn.kneighbors_graph(mode="distance")
+    distances_gpu, indices_gpu = nn.kneighbors(X_reduced)
 
-    sources, targets = knn_graph.nonzero()
-    weights = np.asarray(knn_graph[sources, targets]).ravel()
-    weights = 1.0 / (1.0 + weights)
+    distances = cp.asnumpy(distances_gpu)
+    indices = cp.asnumpy(indices_gpu)
 
-    g = ig.Graph(n=X_reduced.shape[0], edges=list(zip(sources, targets)), directed=False, edge_attrs={"weight": weights})
+    n_samples = X_reduced.shape[0]
+    sources = np.repeat(np.arange(n_samples), k_neighbors)
+    targets = indices.ravel()
+    weights = 1.0 / (1.0 + distances.ravel())
+
+    g = ig.Graph(n=n_samples, edges=list(zip(sources, targets)), directed=False, edge_attrs={"weight": weights})
     g.simplify(combine_edges=max)
 
     partition = leidenalg.find_partition(
@@ -136,7 +194,7 @@ def run_knn_leiden(X_reduced, k_neighbors=15, resolution=0.005):
 
 def compute_metrics(X_eval, labels, y_true):
     valid_mask = labels != -1
-    n_clusters = len(np.unique(labels[valid_mask]))
+    n_clusters = len(np.unique(labels[valid_mask])) if np.any(valid_mask) else 0
     noise_ratio = round(float(np.sum(~valid_mask) / len(labels)), 4)
 
     nmi = round(float(normalized_mutual_info_score(y_true, labels)), 4)
@@ -166,34 +224,28 @@ def compute_metrics(X_eval, labels, y_true):
 
 
 def main():
+    gpu_id = cp.cuda.Device().id
+    gpu_name = cp.cuda.runtime.getDeviceProperties(gpu_id)['name'].decode('utf-8')
+    print(f"[-] Inicializando benchmark sobre GPU {gpu_id}: {gpu_name}")
+
     client = MongoClient("mongodb://localhost:27017/", maxPoolSize=50)
     db = client["viromica_db"]
 
-    # Extraer muestra base de genes curados
-    src_col = db["genes_curados"]
-    pipeline = [
-        {"$match": {"product": {"$exists": True, "$ne": None, "$ne": ""}, "protein_id": {"$exists": True, "$ne": None, "$ne": ""}}},
-        {"$sample": {"size": 70000}},
-        {"$project": {"_id": 0, "protein_id": 1, "product": 1}},
-    ]
-    docs = list(src_col.aggregate(pipeline))
-    protein_id_to_product = {d["protein_id"]: d["product"] for d in docs}
-    sample_ids = list(protein_id_to_product.keys())
-
-    # Mapeo de vectores disponibles
     vector_configs = {
-        "kmers6": ("vec_kmers6", ["kmer_vector", "kmer6_vector", "kmers6_vector", "vector"]),
-        "align_mds": ("vec_align_mds", ["align_mds_vector", "vector"]),
-        "esm3": ("vec_esm3", ["esm3_vector", "vector"]),
-        "prott5": ("vec_prott5", ["prott5_vector", "vector"]),
+        "kmers6": ("vec_kmers6", ["kmer_vector", "kmer6_vector", "kmers6_vector", "vector"], True),
+        "align_mds": ("vec_align_mds", ["align_mds_vector", "vector"], False),
+        "esm3": ("vec_esm3", ["esm3_vector", "vector"], False),
+        "prott5": ("vec_prott5", ["prott5_vector", "vector"], False),
     }
 
-    # Combinaciones a evaluar
     combinations = [
+        ("kmers6 + esm3", [vector_configs["kmers6"], vector_configs["esm3"]]),
         ("kmers6 + prott5", [vector_configs["kmers6"], vector_configs["prott5"]]),
-        ("esm3 + prott5", [vector_configs["esm3"], vector_configs["prott5"]]),
-        ("kmers6 + esm3 + prott5", [vector_configs["kmers6"], vector_configs["esm3"], vector_configs["prott5"]]),
+        ("kmers6 + align_mds", [vector_configs["kmers6"], vector_configs["align_mds"]]),
+        ("align_mds + esm3", [vector_configs["align_mds"], vector_configs["esm3"]]),
         ("align_mds + prott5", [vector_configs["align_mds"], vector_configs["prott5"]]),
+        ("kmers6 + align_mds + esm3", [vector_configs["kmers6"], vector_configs["align_mds"], vector_configs["esm3"]]),
+        ("kmers6 + align_mds + prott5", [vector_configs["kmers6"], vector_configs["align_mds"], vector_configs["prott5"]]),
     ]
 
     results = []
@@ -204,7 +256,19 @@ def main():
         print(f"==================================================")
 
         try:
-            X_fused, y_fused, valid_ids = build_fused_matrix(db, combo_configs, sample_ids, protein_id_to_product)
+            req_cols = [cfg[0] for cfg in combo_configs]
+            docs = fetch_aligned_fusion_sample(db, req_cols, sample_size=70000)
+            
+            y_fused = np.array([d["product"] for d in docs])
+            
+            matrices = []
+            for col_name, candidates, is_kmer in combo_configs:
+                X_part = process_feature_space(docs, col_name, candidates, is_kmer=is_kmer)
+                print(f"[{time.strftime('%H:%M:%S')}] -> Subespacio '{col_name}' procesado con éxito. Shape: {X_part.shape}")
+                matrices.append(X_part)
+
+            X_fused = np.hstack(matrices)
+            
         except Exception as e:
             print(f"[{time.strftime('%H:%M:%S')}] ERROR en la combinación {combo_name}: {e}")
             continue
@@ -212,14 +276,18 @@ def main():
         print(f"[{time.strftime('%H:%M:%S')}] Muestra efectiva: {X_fused.shape[0]:,} registros")
         print(f"[{time.strftime('%H:%M:%S')}] Dimensiones fusionadas: {X_fused.shape[1]:,}")
 
-        # Pipeline 1: UMAP + HDBSCAN
+        # Pipeline 1: UMAP + HDBSCAN (cuML en GPU)
+        t0 = time.time()
         labels_hdb, X_red = run_umap_hdbscan(X_fused, min_cluster_size=20)
         m_hdb = compute_metrics(X_red, labels_hdb, y_fused)
+        print(f"[{time.strftime('%H:%M:%S')}] UMAP+HDBSCAN completado en {time.time() - t0:.2f}s")
         results.append({"Combinacion": combo_name, "Algoritmo": "UMAP+HDBSCAN", "Dims": X_fused.shape[1], **m_hdb})
 
-        # Pipeline 2: kNN + Leiden
+        # Pipeline 2: kNN (cuML) + Leiden
+        t0 = time.time()
         labels_lei = run_knn_leiden(X_red, k_neighbors=15, resolution=0.005)
         m_lei = compute_metrics(X_red, labels_lei, y_fused)
+        print(f"[{time.strftime('%H:%M:%S')}] kNN+Leiden completado en {time.time() - t0:.2f}s")
         results.append({"Combinacion": combo_name, "Algoritmo": "kNN+Leiden", "Dims": X_fused.shape[1], **m_lei})
 
     df_res = pd.DataFrame(results)
