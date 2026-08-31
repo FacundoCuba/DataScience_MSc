@@ -118,7 +118,7 @@ def run_leiden_clustering(X, n_neighbors: int = 15) -> tuple[np.ndarray, np.ndar
 
 
 def evaluate_metrics(X_eval, labels: np.ndarray, y_product: np.ndarray, orig_dim: int) -> dict:
-    """Calcula todas las métricas de evaluación supervisadas e internas especificadas."""
+    """Calcula todas las métricas de evaluación supervisadas e internas especificadas sin sobrecargar la RAM."""
     valid_mask = labels != -1 if -1 in labels else np.ones(len(labels), dtype=bool)
     n_clusters = len(np.unique(labels[valid_mask]))
     noise_ratio = round(float(np.sum(~valid_mask) / len(labels)), 4) if -1 in labels else 0.0
@@ -137,32 +137,30 @@ def evaluate_metrics(X_eval, labels: np.ndarray, y_product: np.ndarray, orig_dim
         "Calinski_Harabasz": np.nan,
     }
 
-    # Cálculo de métricas internas sobre submuestra para optimizar tiempo/RAM
+    # Cálculo de métricas internas sobre submuestra optimizada
     if np.sum(valid_mask) > 1 and n_clusters > 1:
         eval_indices = np.where(valid_mask)[0]
         sub_sample_size = min(3000, len(eval_indices))
         sub_sample_idx = np.random.choice(eval_indices, size=sub_sample_size, replace=False)
         
         X_sub = X_eval[sub_sample_idx]
-        if issparse(X_sub):
-            X_sub = X_sub.toarray()
-            
         labels_sub = labels[sub_sample_idx]
 
+        # 1. Silueta (mantiene matriz dispersa si es csr_matrix)
         try:
-            res["Silueta"] = round(float(silhouette_score(X_sub, labels_sub, metric="euclidean")), 4)
+            metric = "cosine" if issparse(X_sub) else "euclidean"
+            res["Silueta"] = round(float(silhouette_score(X_sub, labels_sub, metric=metric)), 4)
         except Exception:
             pass
 
-        try:
-            res["Davies_Bouldin"] = round(float(davies_bouldin_score(X_sub, labels_sub)), 4)
-        except Exception:
-            pass
-
-        try:
-            res["Calinski_Harabasz"] = round(float(calinski_harabasz_score(X_sub, labels_sub)), 4)
-        except Exception:
-            pass
+        # 2. Métricas que requieren espacio denso (solo si la dimensión es manejable < 10,000)
+        if not issparse(X_sub) or X_sub.shape[1] < 10000:
+            try:
+                X_sub_dense = X_sub.toarray() if issparse(X_sub) else X_sub
+                res["Davies_Bouldin"] = round(float(davies_bouldin_score(X_sub_dense, labels_sub)), 4)
+                res["Calinski_Harabasz"] = round(float(calinski_harabasz_score(X_sub_dense, labels_sub)), 4)
+            except Exception:
+                pass
 
     return res
 
