@@ -3,17 +3,10 @@
 
 """Visualizador Interactivo GPU-Acelerado (cuML / CUDA) con Clustering kNN + Leiden.
 
-Utiliza RAPIDS cuML para SVD y UMAP en GPU, e igraph + leidenalg para la detección de comunidades  sobre 70,000+ muestras.
+Utiliza RAPIDS cuML para SVD y UMAP en GPU, e igraph + leidenalg para la detección de comunidades sobre 70,000+ muestras.
 """
 
-import warnings
 import time
-
-warnings.filterwarnings("ignore", category=FutureWarning, module="cuda")
-
-from cuda.bindings import runtime as cudart
-from cuda.bindings import driver as cuda_driver
-
 import numpy as np
 from pymongo import MongoClient
 import cupy as cp
@@ -24,11 +17,8 @@ from cupyx.scipy.sparse.linalg import svds as cupy_svds
 from scipy.sparse import issparse, csr_matrix
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.preprocessing import normalize
-
 import igraph as ig
 import leidenalg as la
-
-import plotly.colors as pcolors
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 

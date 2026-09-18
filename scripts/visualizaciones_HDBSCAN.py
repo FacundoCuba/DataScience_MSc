@@ -6,14 +6,7 @@
 Utiliza RAPIDS cuML para UMAP y HDBSCAN sobre 70,000+ muestras.
 """
 
-import warnings
 import time
-
-warnings.filterwarnings("ignore", category=FutureWarning, module="cuda")
-
-from cuda.bindings import runtime as cudart
-from cuda.bindings import driver as cuda_driver
-
 import numpy as np
 from pymongo import MongoClient
 import cupy as cp
@@ -199,8 +192,8 @@ def generate_interactive_plots(ids, y_product, X_k6, X_pt5, X_esm):
     )
 
     print(f"[{time.strftime('%H:%M:%S')}] Exportando archivos HTML...")
-    fig_2d.write_html("visualizacion_topologica_2D.html")
-    fig_3d.write_html("visualizacion_topologica_3D.html")
+    fig_2d.write_html("visualizacion_HDBSCAN_2D.html")
+    fig_3d.write_html("visualizacion_HDBSCAN_3D.html")
     print(f"[{time.strftime('%H:%M:%S')}] Proceso finalizado con éxito.")
 
 
