@@ -17,11 +17,12 @@ import time
 def curar_datos() -> None:
     """Ejecuta el pipeline de curación de datos utilizando agregaciones nativas en MongoDB.
 
-    Calcula la longitud de cada secuencia de aminoácidos del lado de la base de datos, 
-    descarta los registros que se encuentren fuera del rango definido por `MIN_LEN` (30) 
-    y `MAX_LEN` (1175)[cite: 5], y escribe los documentos resultantes de manera atómica 
-    en una nueva colección denominada 'genes_curados'[cite: 5]. Al finalizar, calcula métricas 
-    del descarte e inicializa un índice para acelerar las búsquedas posteriores[cite: 5].
+    Filtra la colección 'genes_virales' descartando secuencias cuyo tamaño en aminoácidos
+    esté fuera del rango [MIN_LEN=30, MAX_LEN=1175] y persiste el resultado en 'genes_curados'.
+
+    Side Effects:
+        - Reemplaza de forma destructiva la colección 'genes_curados' mediante la etapa `$out`.
+        - Crea un índice ascendente sobre el campo 'protein_id'.
     """
     client = MongoClient("mongodb://localhost:27017/")
     db = client["viromica_db"]

@@ -18,7 +18,15 @@ from tqdm import tqdm
 
 
 def _extract_vector_field(doc: dict, candidates: list[str]):
-    """Busca y extrae la clave del vector dentro de un documento según una lista de candidatos."""
+    """Busca y extrae el primer campo vectorial válido dentro de un documento de MongoDB.
+
+    Args:
+        doc (dict): Documento recuperado de la colección.
+        candidates (list[str]): Nombres de claves candidatas a inspeccionar (ej. 'kmer_vector', 'vector').
+
+    Returns:
+        list | dict | None: El valor del vector si se encuentra alguna clave candidata, de lo contrario None.
+    """
     if not doc:
         return None
     for cand in candidates:
@@ -28,7 +36,18 @@ def _extract_vector_field(doc: dict, candidates: list[str]):
 
 
 def build_unified_collection(chunk_size: int = 5000):
-    """Ejecuta el pipeline de consolidación masiva de características proteicas."""
+    """Ejecuta el pipeline de consolidación masiva de características proteicas.
+
+    Une los metadatos de 'genes_curados' con sus vectores en 'vec_kmers6', 'vec_align_mds',
+    'vec_esm3' y 'vec_prott5', persistiendo la intersección en 'genes_unified_features'.
+
+    Args:
+        chunk_size (int, optional): Tamaño del lote para lecturas e inserciones. Por defecto es 5000.
+
+    Side Effects:
+        - Elimina (drop) la colección 'genes_unified_features' si existe previamente.
+        - Crea índices sobre los campos 'protein_id' y 'product'.
+    """
     client = MongoClient("mongodb://localhost:27017/", maxPoolSize=50)
     db = client["viromica_db"]
 

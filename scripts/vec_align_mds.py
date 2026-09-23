@@ -68,6 +68,15 @@ def compute_cross_distances_gpu(
     Utiliza micro-lotes y difusión (*broadcasting*) en tensores 3D para evaluar desacoples 
     y normalizar por la longitud máxima de par. Procesa los Landmarks en bloques para acotar 
     el consumo máximo de VRAM.
+
+    Args:
+        batch_seqs (list[str]): Lista de secuencias de aminoácidos del lote actual.
+        landmark_seqs (list[str]): Lista de secuencias de referencia (Landmarks).
+        device (torch.device): Dispositivo de cómputo PyTorch ('cuda' o 'cpu').
+        micro_batch_size (int, optional): Tamaños de sub-lotes para la aceleración en GPU. Por defecto es 50.
+
+    Returns:
+        torch.Tensor: Tensor 2D en PyTorch de forma (len(batch_seqs), len(landmark_seqs)) con distancias en [0, 1].
     """
     n_batch = len(batch_seqs)
     n_landmarks = len(landmark_seqs)
@@ -117,9 +126,14 @@ def compute_cross_distances_gpu(
 def run_landmark_alignment_mds_full(n_components: int = 50, n_landmarks: int = 5000, batch_size: int = 5000) -> None:
     """Ejecuta la canalización completa de entrenamiento e inferencia masiva de Landmark MDS.
 
-    Extrae los Landmarks, calcula la matriz métrica base en GPU, ajusta la proyección MDS 
-    con `scikit-learn` y realiza la transformación lineal masiva para los 690,579 genes, 
-    guardando el resultado por lotes en MongoDB.
+    Args:
+        n_components (int, optional): Dimensión del subespacio proyectado. Por defecto es 50.
+        n_landmarks (int, optional): Cantidad de secuencias de referencia a tomar. Por defecto es 5000.
+        batch_size (int, optional): Tamaño del lote para la lectura/escritura en MongoDB. Por defecto es 5000.
+
+    Side Effects:
+        - Elimina y vuelve a crear la colección 'vec_align_mds' en MongoDB.
+        - Genera un índice ascendente en el campo 'protein_id'.
     """
     device = get_cuda_device()
     

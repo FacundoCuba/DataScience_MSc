@@ -109,9 +109,14 @@ def _process_and_insert_esm_batch(
 ) -> None:
     """Procesa un lote de secuencias con ESM-2 en FP16, aplica Mean Pooling y persiste en MongoDB.
 
-    Tokeniza las secuencias, ejecuta la pasada hacia adelante bajo precisión mixta 
-    (`torch.amp.autocast`), reduce los estados ocultos promediando sobre la dimensión 
-    secuencial (descartando el relleno) e inserta los embeddings en la base de datos.
+    Args:
+        batch_docs (list[dict]): Lista de documentos de MongoDB con 'protein_id' y 'aa_sequence'.
+        model (torch.nn.Module): Modelo de lenguaje proteico ESM-2 instanciado en el dispositivo objetivo.
+        tokenizer (AutoTokenizer): Tokenizador correspondiente al modelo ESM-2.
+        device (str): Dispositivo de ejecución ('cuda' o 'cpu').
+        dst_col (pymongo.collection.Collection): Colección de destino en MongoDB.
+        model_name (str): Identificador o ruta del modelo en HuggingFace.
+        max_length (int): Longitud máxima de aminoácidos para el truncamiento.
     """
     sequences = [d["aa_sequence"] for d in batch_docs]
     protein_ids = [d["protein_id"] for d in batch_docs]

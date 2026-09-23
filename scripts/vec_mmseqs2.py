@@ -16,7 +16,14 @@ from tqdm import tqdm
 
 
 def parse_mmseqs_tsv(tsv_path: str) -> dict[str, int]:
-    """Parsea el resultado de tsvdb de MMseqs2 mapeando {protein_id: cluster_id}."""
+    """Parsea el archivo TSV de salida de MMseqs2 Linclust mapeando secuencias a sus clústeres.
+
+    Args:
+        tsv_path (str): Ruta hacia el archivo .tsv generado por MMseqs2.
+
+    Returns:
+        dict[str, int]: Diccionario que asigna a cada `protein_id` un ID numérico de clúster único.
+    """
     cluster_map = {}
     current_cluster_idx = 0
     repr_to_cluster = {}

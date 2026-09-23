@@ -17,7 +17,14 @@ from tqdm import tqdm
 
 
 def parse_cdhit_clstr_fast(clstr_path: str) -> dict[str, int]:
-    """Parsea el archivo .clstr reduciendo operaciones de strings en memoria."""
+    """Parsea un archivo de salida .clstr de CD-HIT para obtener la asignación de clústeres.
+
+    Args:
+        clstr_path (str): Ruta al archivo de texto .clstr generado por CD-HIT.
+
+    Returns:
+        dict[str, int]: Mapeo de identificador de proteína (`protein_id`) a su ID de clúster asignado.
+    """
     cluster_map = {}
     current_cluster = -1
 
@@ -72,6 +79,19 @@ def run_cdhit_vectorization(
     thresholds: list[float] = [0.6, 0.7, 0.8, 0.9, 1.0],
     max_workers: int = 2
 ) -> None:
+    """Calcula perfiles de clúster multiresolución mediante ejecuciones paralelas de CD-HIT.
+
+    Args:
+        db_name (str, optional): Nombre de la base de datos de MongoDB. Por defecto es "viromica_db".
+        src_collection (str, optional): Colección origen de secuencias. Por defecto es "genes_curados".
+        dst_collection (str, optional): Colección destino para los vectores. Por defecto es "vec_cdhit".
+        thresholds (list[float], optional): Lista de umbrales de identidad de secuencia.
+        max_workers (int, optional): Número de procesos en paralelo a ejecutar. Por defecto es 2.
+
+    Side Effects:
+        - Crea archivos temporales FASTA y resultados en el directorio temporal del sistema.
+        - Inserta documentos con la clave 'cdhit_vector' e indexa 'protein_id' en MongoDB.
+    """
     client = MongoClient("mongodb://localhost:27017/", maxPoolSize=50)
     db = client[db_name]
     src_col = db[src_collection]

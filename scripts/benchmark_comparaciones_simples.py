@@ -34,7 +34,15 @@ from hdbscan import HDBSCAN
 
 
 def extract_vector_or_dict(doc_field) -> np.ndarray | dict:
-    """Extrae el campo vectorial devolviendo un arreglo 1D o el diccionario disperso original."""
+    """Extrae y normaliza la representación vectorial de un campo de documento de MongoDB.
+
+    Args:
+        doc_field (list | dict | None): Contenido del campo vectorial recuperado de la BD.
+
+    Returns:
+        np.ndarray | dict: Arreglo NumPy 1D (float32) si es una lista densa, diccionario si es
+        una representación dispersa, o arreglo vacío si el campo es inválido.
+    """
     if isinstance(doc_field, list):
         return np.array(doc_field, dtype=np.float32)
     elif isinstance(doc_field, dict):
@@ -137,7 +145,19 @@ def run_hdbscan(X_reduced: np.ndarray, min_cluster_size: int = 20) -> np.ndarray
 
 
 def run_knn_leiden(X_reduced: np.ndarray, k_neighbors: int = 15, resolution: float = 0.05) -> np.ndarray:
-    """Construye grafo k-NN y detecta comunidades con el algoritmo de Leiden."""
+    """Construye un grafo de k vecinos más cercanos (k-NN) y detecta comunidades mediante el algoritmo de Leiden.
+
+    Calcula distancias euclídeas, las convierte a pesos de similitud ($1 / (1 + d)$) y aplica
+    la partición de Leiden (CPMVertexPartition).
+
+    Args:
+        X_reduced (np.ndarray): Matriz de características reducida (p. ej., por UMAP).
+        k_neighbors (int, optional): Número de vecinos en el grafo k-NN. Por defecto es 15.
+        resolution (float, optional): Parámetro de resolución para la partición CPM. Por defecto es 0.05.
+
+    Returns:
+        np.ndarray: Arreglo 1D con las etiquetas de comunidad asignadas a cada observación.
+    """
     print(f"[{time.strftime('%H:%M:%S')}] Construyendo grafo k-NN (k={k_neighbors})...")
     nn = NearestNeighbors(n_neighbors=k_neighbors, metric="euclidean", n_jobs=-1)
     nn.fit(X_reduced)

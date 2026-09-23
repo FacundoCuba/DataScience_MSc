@@ -24,11 +24,17 @@ OUTPUT_DIR = "database_gb"
 BATCH_SIZE = 100 
 
 def obtener_ruta_archivo(accession: str, base_dir: str) -> str:
-    """Crea una ruta jerárquica para evitar colapsar el sistema de archivos.
+    """Genera la ruta jerárquica para almacenar un archivo GenBank según su número de acceso.
 
-    Toma un número de acceso de GenBank y distribuye el archivo resultante en 
-    subcarpetas basadas en sus primeros caracteres. Por ejemplo:
-    'NC_001422' se guardará en '{base_dir}/NC/00/NC_001422.gb'.
+    Crea subdirectorios en función de los caracteres del número de acceso para evitar
+    saturar la cantidad máxima de archivos por directorio en el sistema de archivos.
+
+    Args:
+        accession (str): Identificador de acceso de GenBank (ej. 'NC_001422').
+        base_dir (str): Directorio raíz donde se estructurará el árbol de carpetas.
+
+    Returns:
+        str: Ruta absoluta o relativa completa hacia el archivo .gb (ej. 'database_gb/NC/00/NC_001422.gb').
     """
     prefix = accession[:2] 
     sub_prefix = accession[3:5] if len(accession) > 5 else "00"

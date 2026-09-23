@@ -8,7 +8,7 @@ tubería del TFI. Utiliza agregaciones eficientes de MongoDB para calcular
 estadísticas descriptivas de longitud de secuencia sin saturar la RAM, 
 identificar los virus más frecuentes, mapear la distribución de sus hospedadores 
 y generar tanto un reporte gráfico como un informe de texto plano que sirva de 
-diagnóstico previo a las tareas de vectorización y clustering[cite: 2, 8].
+diagnóstico previo a las tareas de vectorización y clustering.
 """
 
 import pandas as pd
@@ -20,10 +20,10 @@ def run_eda() -> None:
     """Ejecuta el análisis exploratorio de datos y genera visualizaciones clave.
 
     Conecta con la colección en MongoDB para extraer longitudes de aminoácidos,
-    organismos principales e información de hospedadores[cite: 2, 8]. Genera una figura de
+    organismos principales e información de hospedadores. Genera una figura de
     cuatro paneles con un histograma de longitudes, un gráfico de barras de
     organismos, un gráfico de torta de hospedadores y un boxplot para la
-    detección visual de outliers en el tamaño de las proteínas[cite: 8].
+    detección visual de outliers en el tamaño de las proteínas.
     """
     # 1. Conexión
     client = MongoClient("mongodb://localhost:27017/")
@@ -99,7 +99,7 @@ def generar_reporte_texto() -> None:
 
     Calcula métricas descriptivas clave del conjunto de secuencias (conteo total,
     promedio de longitud, percentiles, etc.) y lista los principales virus y
-    hospedadores mapeados en el ecosistema, persistiendo la información de manera legible[cite: 8].
+    hospedadores mapeados en el ecosistema, persistiendo la información de manera legible.
     """
     client = MongoClient("mongodb://localhost:27017/")
     db = client["viromica_db"]

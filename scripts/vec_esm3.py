@@ -2,9 +2,6 @@
 # -*- coding: utf-8 -*-
 
 """Vectorización Masiva de Secuencias Proteicas mediante ESM-3 (pLLM) en CUDA.
-
-Optimizado para GPUs de 12GB VRAM en WSL2 mediante Token Budgeting, 
-reanudación automática desde MongoDB y torch.inference_mode().
 """
 
 import os
@@ -111,7 +108,21 @@ def _safe_process_and_insert(
     dst_col,
     model_name: str
 ) -> None:
-    """Procesa un lote; si ocurre un error de VRAM o PyTorch, recurre al procesamiento individual."""
+    """Procesa e inserta un lote de secuencias en MongoDB con mecanismo de tolerancia a fallos de VRAM.
+
+    Intenta procesar el lote completo en GPU. Si se produce un error de memoria (Out Of Memory)
+    o aserción en CUDA, vacía la caché de PyTorch y reintenta la vectorización secuencia por secuencia.
+
+    Args:
+        batch_docs (list[dict]): Lote de documentos a procesar.
+        model (torch.nn.Module): Modelo pLLM cargado.
+        device (str): Dispositivo de ejecución.
+        dst_col (pymongo.collection.Collection): Colección destino en MongoDB.
+        model_name (str): Nombre del modelo en el hub / registro.
+
+    Raises:
+        Exception: Re-lanza cualquier excepción que no esté relacionada con la VRAM de CUDA.
+    """
     try:
         _process_and_insert_esm3_batch(batch_docs, model, device, dst_col, model_name)
     except Exception as e:

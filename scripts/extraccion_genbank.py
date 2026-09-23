@@ -103,7 +103,7 @@ def main() -> None:
     Escanea de forma recursiva el directorio raíz `GB_DIR` para identificar los archivos GenBank.
     Inicializa un `ProcessPoolExecutor` para procesar múltiples archivos simultáneamente.
     Finalmente, gestiona un búfer de escritura que ejecuta operaciones de tipo Upsert masivas
-    (Bulk Operations) contra MongoDB, manteniendo índices optimizados[cite: 2, 8].
+    (Bulk Operations) contra MongoDB, manteniendo índices optimizados.
     """
     print(f"[{time.strftime('%H:%M:%S')}] Iniciando extraccion paralela...")
     client = MongoClient(MONGO_URI)

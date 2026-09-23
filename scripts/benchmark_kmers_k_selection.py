@@ -72,7 +72,16 @@ def load_sequences_and_products(db, sample_size: int = 70000) -> tuple[list[str]
 
 
 def extract_kmers_sparse(sequences: list[str], k: int) -> csr_matrix:
-    """Construye una matriz dispersa de frecuencias relativas de $k$-mers a partir de secuencias proteicas."""
+    """Construye una matriz dispersa de frecuencias relativas de k-mers aminoacídicos.
+
+    Args:
+        sequences (list[str]): Lista de secuencias de aminoácidos a procesar.
+        k (int): Tamaño de ventana ($k$) para la extracción de k-mers.
+
+    Returns:
+        scipy.sparse.csr_matrix: Matriz dispersa de dimensiones (N, V) en formato CSR (float32),
+        donde N es la cantidad de secuencias y V el tamaño del vocabulario único observado.
+    """
     print(f"[{time.strftime('%H:%M:%S')}] Generando conteo de {k}-mers para {len(sequences):,} secuencias...")
     start_t = time.time()
 

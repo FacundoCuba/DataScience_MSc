@@ -20,7 +20,7 @@ def run_eda() -> None:
     """Ejecuta el análisis exploratorio sobre los datos curados y genera gráficos de diagnóstico.
 
     Se conecta a la colección 'genes_curados' en MongoDB y procesa la distribución de 
-    longitudes de secuencia, así como el conteo de organismos y hospedadores[cite: 5]. 
+    longitudes de secuencia, así como el conteo de organismos y hospedadores. 
     Genera un lienzo con cuatro visualizaciones clave (histograma, boxplot, gráfico de 
     barras y gráfico de torta) para el informe de avance.
     """
@@ -97,7 +97,7 @@ def generar_reporte_texto() -> None:
     """Genera un informe detallado de estadísticas descriptivas en formato de texto plano.
 
     Extrae las métricas globales de longitud, listado de organismos representados 
-    y hospedadores sobre los datos filtrados en la colección 'genes_curados'[cite: 5]. 
+    y hospedadores sobre los datos filtrados en la colección 'genes_curados'. 
     Facilita el contraste empírico de volumen de pérdida frente al reporte crudo.
     """
     client = MongoClient("mongodb://localhost:27017/")

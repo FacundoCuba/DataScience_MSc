@@ -33,7 +33,20 @@ from pynndescent import NNDescent
 
 
 def load_unified_sample(db, sample_size: int = 70000):
-    """Extrae una muestra aleatoria desde MongoDB y vectoriza los cuatro espacios de características."""
+    """Extrae una muestra aleatoria desde MongoDB y vectoriza los cuatro espacios de características.
+
+    Args:
+        db (pymongo.database.Database): Instancia de la base de datos MongoDB.
+        sample_size (int, optional): Número de documentos a muestrear. Por defecto es 70000.
+
+    Returns:
+        tuple:
+            - y_product (np.ndarray): Arreglo 1D con las etiquetas biológicas ('product').
+            - X_kmers6 (csr_matrix | np.ndarray): Matriz de vectores de 6-mers.
+            - X_mds (np.ndarray): Matriz de vectores de Landmark MDS.
+            - X_esm3 (np.ndarray): Matriz de embeddings de ESM-3.
+            - X_prott5 (np.ndarray): Matriz de embeddings de ProtT5.
+    """
     print(f"[{time.strftime('%H:%M:%S')}] Cargando muestra de {sample_size:,} desde 'genes_unified_features'...")
     col = db["genes_unified_features"]
 
@@ -118,7 +131,17 @@ def run_leiden_clustering(X, n_neighbors: int = 15) -> tuple[np.ndarray, np.ndar
 
 
 def evaluate_metrics(X_eval, labels: np.ndarray, y_product: np.ndarray, orig_dim: int) -> dict:
-    """Calcula todas las métricas de evaluación supervisadas e internas especificadas sin sobrecargar la RAM."""
+    """Calcula métricas de evaluación supervisadas e internas sobre una submuestra optimizada.
+
+    Args:
+        X_eval (np.ndarray | csr_matrix): Espacio vectorial evaluado (reducido o de alta dimensión).
+        labels (np.ndarray): Etiquetas de asignación de clústeres predichas.
+        y_product (np.ndarray): Etiquetas reales (ground truth 'product').
+        orig_dim (int): Dimensión del espacio vectorial antes de cualquier reducción.
+
+    Returns:
+        dict[str, float | int]: Diccionario con las métricas calculadas (ARI, NMI, Silueta, etc.).
+    """
     valid_mask = labels != -1 if -1 in labels else np.ones(len(labels), dtype=bool)
     n_clusters = len(np.unique(labels[valid_mask]))
     noise_ratio = round(float(np.sum(~valid_mask) / len(labels)), 4) if -1 in labels else 0.0

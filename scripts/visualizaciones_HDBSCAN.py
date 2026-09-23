@@ -77,7 +77,20 @@ def load_unified_data(db, sample_size: int = 70000):
 
 
 def project_and_cluster_gpu(X, n_components: int, metric: str = "cosine"):
-    """Procesa matrices densas y esparcidas usando SVD en GPU (CuPy) para alta dimensionalidad."""
+    """Proyecta espacialmente la matriz de entrada mediante UMAP y detecta clústeres con HDBSCAN en GPU.
+
+    Si la matriz es esparcida (scipy.sparse), aplica previamente SVD esparcida ($k=50$) en GPU con CuPy.
+
+    Args:
+        X (np.ndarray | csr_matrix): Matriz de características densa o esparcida.
+        n_components (int): Cantidad de dimensiones destino para UMAP (2 o 3).
+        metric (str, optional): Métrica de distancia para UMAP. Por defecto es "cosine".
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: 
+            - coords (np.ndarray): Coordenadas proyectadas de forma (N, n_components).
+            - labels (np.ndarray): Etiquetas de clúster asignadas por HDBSCAN.
+    """
     
     if issparse(X):
         print(f"[{time.strftime('%H:%M:%S')}] Matriz esparcida detectada ({X.shape[1]:,} cols). Reduciendo con CuPy svds (GPU -> 50 cols)...")
@@ -128,6 +141,19 @@ def project_and_cluster_gpu(X, n_components: int, metric: str = "cosine"):
 
 
 def generate_interactive_plots(ids, y_product, X_k6, X_pt5, X_esm):
+    """Genera y exporta tableros interactivos Plotly 2D y 3D comparando los espacios latentes.
+
+    Args:
+        ids (list[str]): Lista de identificadores de proteína.
+        y_product (list[str]): Anotaciones biológicas del producto génico.
+        X_k6 (csr_matrix | np.ndarray): Representación en 6-mers.
+        X_pt5 (np.ndarray): Representación vectorial ProtT5.
+        X_esm (np.ndarray): Representación vectorial ESM-3.
+
+    Outputs:
+        - 'visualizacion_HDBSCAN_2D.html': Gráficos interactivos en dos dimensiones.
+        - 'visualizacion_HDBSCAN_3D.html': Gráficos interactivos en tres dimensiones.
+    """
     models = [
         ("vec_esm3", X_esm, "cosine"),
         ("vec_prott5", X_pt5, "cosine"),

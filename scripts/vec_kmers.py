@@ -22,11 +22,14 @@ from tqdm import tqdm
 import time
 
 def extract_kmers(sequence: str, k: int) -> dict[str, float]:
-    """Calcula el perfil de frecuencias relativas de $k$-mers para una secuencia proteica.
+    """Calcula el perfil de frecuencias relativas de k-mers para una secuencia proteica.
 
-    Extrae todas las subsucesiones continuas de longitud `k` utilizando una ventana deslizante.
-    Mapea el resultado en un diccionario esparcido que asigna a cada $k$-mer observado su 
-    frecuencia relativa normalizada por la cantidad total de subcadenas extraíbles ($N - k + 1$).
+    Args:
+        sequence (str): Cadena de aminoácidos de la proteína.
+        k (int): Tamaño de la ventana para la extracción de subcadenas.
+
+    Returns:
+        dict[str, float]: Diccionario esparcido con las frecuencias relativas ($0 < f \le 1$) de cada $k$-mer.
     """
     n = len(sequence)
     if not sequence or n < k:
