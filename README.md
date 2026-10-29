@@ -105,6 +105,6 @@ python scripts/metricas_clusters.py
 ---
 
 ## 👤 Autor
-Facundo Cuba
-Biólogo / Bioinformático / Maestría en Ciencia de Datos
-Unidad Operativa Centro Nacional de Genómica y Bioinformática (UOCNGyB) - ANLIS "Dr. Carlos G. Malbrán".
+  - Facundo Cuba
+  - Biólogo / Bioinformático / Maestría en Ciencia de Datos
+  - Unidad Operativa Centro Nacional de Genómica y Bioinformática (UOCNGyB) - ANLIS "Dr. Carlos G. Malbrán".
