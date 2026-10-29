@@ -58,7 +58,9 @@ El pipeline metodológico se divide en cuatro etapas principales correspondiente
 
 ---
 
-## 🚀 Requisitos e InstalaciónEl proyecto está optimizado para ejecutarse en entornos Linux (Pop!_OS / Ubuntu) con soporte para aceleración por GPU (NVIDIA CUDA / CuPy / cuML).
+## 🚀 Requisitos e Instalación
+El proyecto está optimizado para ejecutarse en entornos Linux (Pop!_OS / Ubuntu) con soporte para aceleración por GPU (NVIDIA CUDA / CuPy / cuML).
+
 1.Clonar el repositorio
 ```Bash
 git clone [https://github.com/tu-usuario/viromica-tfi.git](https://github.com/tu-usuario/viromica-tfi.git)
@@ -79,6 +81,7 @@ pip install -r requirements.txt
 
 ## 🛠️ Ejecución del Pipeline
 Para reproducir los análisis principales, puedes ejecutar los scripts secuencialmente desde el directorio raíz o mediante la carpeta scripts/:
+
 Ingesta y Curación:
 ```Bash
 python scripts/descarga_genomas.py
