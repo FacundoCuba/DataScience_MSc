@@ -29,9 +29,10 @@ El proyecto se encuentra modularizado en scripts de Python independientes que cu
 │   ├── benchmark_comparaciones_simples.py # Benchmark simple (Vector vs. Algoritmo)
 │   ├── benchmark_comparaciones_multiples.py# Análisis de sensibilidad y fusión vectorial
 │   ├── build_unified_features.py          # Consolidación del Data Lake NoSQL unificado
-│   ├── metricas_clusters.py               # Cálculo masivo de métricas intrínsecas (GPU/CuPy)
 │   ├── visualizaciones_HDBSCAN.py         # Generación de visualizaciones interactivas UMAP+HDBSCAN
 │   ├── visualizaciones_Leiden.py          # Generación de visualizaciones interactivas k-NN+Leiden
+│   ├── metricas_clusters.py               # Cálculo masivo de métricas intrínsecas (GPU/CuPy)
+│   ├── consulta_cluster.py                # Inspección especifica de cluster
 │   └── debug_mongodb.py                   # Utilidad de auditoría y conexión a MongoDB
 ├── .gitignore
 └── README.md
