@@ -1,13 +1,11 @@
 # **En Proceso**
 ---
 # 🧬 Viromica TFI: Determinación de Familias Génicas Virales mediante Espacios Vectoriales y Clustering
-
 Repositorio oficial del Trabajo Final Integrador (TFI) de la **Maestría en Ciencia de Datos** de la Universidad Nacional Arturo Jauretche (UNAJ). Este proyecto implementa un pipeline escalable de ingeniería de datos, vectorización de secuencias proteicas (composicionales, tradicionales basadas en alineamiento y Modelos de Lenguaje de Proteínas - pLLMs), y evaluación comparativa de algoritmos de agrupamiento (*clustering*) para la delimitación de familias génicas en genomas virales completos y de referencia.
 
 ---
 
 ## 📂 Estructura del Repositorio
-
 El proyecto se encuentra modularizado en scripts de Python independientes que cubren de punta a punta el flujo metodológico:
 
 ```text
@@ -70,8 +68,6 @@ cd viromica-tfi
 
 2. Configurar el entorno virtual e instalar dependencias
 ```Bash
-python3 -m venv venv
-source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
@@ -98,7 +94,7 @@ Evaluación de Benchmark y Clustering:
 python scripts/benchmark_comparaciones_simples.py
 python scripts/benchmark_comparaciones_multiples.py
 ```
-Inspección de Métricas por Clúster (Acelerado por GPU):
+Inspección de Métricas por Clúster:
 ```Bash
 python scripts/metricas_clusters.py
 ```
