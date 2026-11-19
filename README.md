@@ -31,7 +31,7 @@ El proyecto se encuentra modularizado en scripts de Python independientes que cu
 │   ├── visualizaciones_Leiden.py          # Generación de visualizaciones interactivas k-NN+Leiden
 │   ├── metricas_clusters.py               # Cálculo masivo de métricas intrínsecas (GPU/CuPy)
 │   ├── consulta_cluster.py                # Inspección especifica de cluster
-│   └── debug_mongodb.py                   # Utilidad de auditoría y conexión a MongoDB
+│   └── validacion_vogdb.py                # Análisis de comparación frente a VOGDB
 ├── .gitignore
 └── README.md
 ```
@@ -52,13 +52,12 @@ El pipeline metodológico se divide en cuatro etapas principales correspondiente
       - Comparación rigurosa entre el enfoque de variedades no lineales y densidad (UMAP + HDBSCAN) frente a la arquitectura topológica de redes y detección de comunidades (Grafo k-NN + Leiden).
       - Evaluación mediante validación interna (Silueta, Davies-Bouldin, Calinski-Harabasz) y validación externa supervisada frente a la anotación biológica real (product: ARI, NMI, Homogeneidad, Completitud, V-Measure).
   - Validación y Anotación Funcional (Objetivo Específico 4):
-      - Caracterización intrínseca por clúster (pureza, entropía de Shannon, conductancia de grafos).
-      - Transferencia de anotación funcional por proximidad espacial para la resolución automatizada de proteínas hipotéticas en el proteoma oscuro viral.
+      - Validación cruzada externa contra base de referencia mundial (VOGDB).
 
 ---
 
 ## 🚀 Requisitos e Instalación
-El proyecto está optimizado para ejecutarse en entornos Linux (Pop!_OS / Ubuntu) con soporte para aceleración por GPU (NVIDIA CUDA / CuPy / cuML).
+El proyecto está optimizado para ejecutarse en entornos Linux con soporte para aceleración por GPU.
 
 1.Clonar el repositorio
 ```Bash
@@ -94,9 +93,11 @@ Evaluación de Benchmark y Clustering:
 python scripts/benchmark_comparaciones_simples.py
 python scripts/benchmark_comparaciones_multiples.py
 ```
-Inspección de Métricas por Clúster:
+Inspección de Métricas y Validación Externa:
 ```Bash
 python scripts/metricas_clusters.py
+python scripts/consulta_cluster.py [INT]
+python scripts/validacion_vogdb.py
 ```
 
 ---
